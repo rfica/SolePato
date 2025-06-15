@@ -1,0 +1,261 @@
+/* Estilos generales */
+.form-titulo {
+  text-align: center;
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 20px;
+}
+
+.form-registrar-profesor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.form-registrar-profesor div {
+  flex: 1 1 calc(50% - 16px);
+}
+
+.form-registrar-profesor input, 
+.form-registrar-profesor select, 
+.form-registrar-profesor button {
+  width: 100%;
+  padding: 10px;
+  font-size: 16px;
+  border-radius: 20px;
+  border: 1px solid #ccc;
+}
+
+.form-registrar-profesor input[type="radio"], 
+.form-registrar-profesor input[type="checkbox"] {
+  width: auto;
+}
+
+.form-registrar-profesor label {
+  font-size: 16px;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.curso-listado {
+  margin-top: 20px;
+}
+
+.curso-tabla {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.curso-tabla th, .curso-tabla td {
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid #ccc;
+}
+
+.curso-tabla th {
+  background-color: #3f51b5;
+  color: white;
+}
+
+.curso-tabla tr:nth-child(even) {
+  background-color: #f2f2f2;
+}
+
+.curso-tabla tr:nth-child(odd) {
+  background-color: #ffffff;
+}
+
+.form-registrar-profesor button {
+  background-color: #3f51b5;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+.form-registrar-profesor button:hover {
+  background-color: #303f9f;
+}
+
+/* Estilos para el botón "Asignar Profesor" */
+.button {
+  background-color: #3f51b5;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  margin-top: 0.1px; /* Espacio vertical entre botones */
+  margin-bottom: 3px; /* Espacio vertical entre botones */
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.button:hover {
+  background-color: #303f9f;
+}
+
+
+/* Modal */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background-color: white;
+  padding: 20px;
+  border-radius: 8px;
+  width: 400px;
+  max-width: 90%;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  text-align: center;
+}
+
+.modal-content h3 {
+  margin-bottom: 20px;
+}
+
+/* Contenedor para alinear los elementos de asignatura y el botón "Asignar Profesor" */
+.asignatura-item-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Contenedor adicional para alinear los checkboxes */
+.profesor-checkbox-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Lista de asignaturas */
+.asignatura-list {
+  list-style-type: none;
+  padding: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  margin: 0;
+}
+
+.asignatura-list li {
+  margin: 10px 0;
+  display: flex;
+  align-items: center;
+}
+
+.asignatura-list input[type="checkbox"] {
+  margin-right: 10px;
+}
+
+/* Botones en el modal */
+.modal-content button {
+  padding: 10px 20px;
+  margin-top: 20px;
+  margin-right: 15px; /* Espacio entre botones */
+  background-color: #3f51b5;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.modal-content button:hover {
+  background-color: #303f9f;
+}
+
+/* Ajustes responsivos */
+@media (max-width: 768px) {
+  .form-registrar-profesor div {
+    flex: 1 1 100%;
+  }
+}
+
+.success-message {
+  color: green;
+  font-weight: bold;
+  margin-top: 10px;
+  text-align: center;
+}
+
+.error-message {
+  color: red;
+  font-weight: bold;
+  margin-top: 10px;
+  text-align: center;
+}
+
+.profesor-panel {
+  position: fixed;
+  right: 0;
+  top: 0;
+  width: 300px;
+  height: 100%;
+  background-color: #fff;
+  box-shadow: -2px 0 5px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+}
+
+.panel-content {
+  width: 100%;
+}
+
+.profesor-list {
+  list-style-type: none;
+  padding: 0;
+  max-height: 400px;
+  overflow-y: auto;
+  margin: 0;
+}
+
+.profesor-list li {
+  margin: 10px 0;
+  display: flex;
+  align-items: center;
+}
+
+.profesor-panel button {
+  width: 100%;
+  margin-top: 20px;
+}
+
+
+.profesor-checkbox-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.profesor-checkbox-container label {
+  font-size: 16px;
+  color: #333;
+}
+
+
+
+.profesores-list div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.profesores-list span {
+    margin-left: 10px;
+    font-size: 16px;
+    color: #333;
+}

@@ -1,0 +1,133 @@
+// Restaurado a su versión original
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import CursoFormulario from './curso/CursoFormulario';
+import CursoListado from './curso/CursoListado';
+import { Button } from '@material-ui/core';
+import AddIcon from '@material-ui/icons/Add';
+import RemoveIcon from '@material-ui/icons/Remove';
+import '../styles/estilosgenerales.css';
+
+function CrearCurso() {
+  const [curso, setCurso] = useState({
+    colegio: '',
+    letrasSeleccionadas: [],
+    capacidadMaxima: '',
+    codigoEnsenanza: '',
+    profesorJefe: '',
+    grado: '',
+  });
+  const [colegios, setColegios] = useState([]);
+  const [cursos, setCursos] = useState([]);
+  const [profesores, setProfesores] = useState([]);
+  const [mostrarFormulario, setMostrarFormulario] = useState(false);
+  const [cursoSeleccionado, setCursoSeleccionado] = useState(null);
+  const [colegioSeleccionado, setColegioSeleccionado] = useState(null);
+  const backendURL = 'http://localhost:5000/api/cursos';
+
+  useEffect(() => {
+    const fetchColegios = async () => {
+      try {
+        const response = await axios.get(`${backendURL}/colegios`);
+        setColegios(response.data);
+      } catch (error) {
+        console.error('Error al cargar colegios:', error);
+      }
+    };
+
+    fetchColegios();
+  }, []);
+
+  const cargarDatosColegio = async (colegioId) => {
+    try {
+      const responseProfesores = await axios.get(`http://localhost:5000/api/cursos/profesores/${colegioId}`);
+      const responseCursos = await axios.get(`http://localhost:5000/api/cursos/${colegioId}/cursos`);
+      setProfesores(responseProfesores.data);
+      setCursos(responseCursos.data);
+    } catch (error) {
+      console.error('Error al cargar datos del colegio:', error);
+    }
+  };
+
+  const handleColegioChange = async (event) => {
+    const selectedColegio = event.target.value;
+    setCurso({ ...curso, colegio: selectedColegio });
+    setColegioSeleccionado(selectedColegio);
+    await cargarDatosColegio(selectedColegio);
+  };
+
+  const handleMostrarFormulario = () => {
+    setMostrarFormulario(!mostrarFormulario);
+    setCurso({
+      colegio: curso.colegio,
+      letrasSeleccionadas: [],
+      capacidadMaxima: '',
+      codigoEnsenanza: '',
+      profesorJefe: '',
+      grado: '',
+    });
+    setCursoSeleccionado(null);
+  };
+
+  const handleEditarCurso = (cursoId) => {
+    const cursoSeleccionado = cursos.find((curso) => curso.LetraId === cursoId || curso.GradoId === cursoId);
+    if (cursoSeleccionado) {
+      setCurso({
+        colegio: cursoSeleccionado.ColegioId,
+        letrasSeleccionadas: cursoSeleccionado.LetraName ? [cursoSeleccionado.LetraName] : [],
+        capacidadMaxima: cursoSeleccionado.CapacidadMaxima,
+        codigoEnsenanza: cursoSeleccionado.CodigoEnseñanzaID,
+        profesorJefe: cursoSeleccionado.ProfesorJefeId,
+        grado: cursoSeleccionado.GradoId,
+      });
+      setCursoSeleccionado(cursoSeleccionado);
+      setMostrarFormulario(true);
+    }
+  };
+
+  return (
+    <div>
+      <h2 className="form-titulo">Crear Curso</h2>
+
+      <div className="form-row aligned-elements">
+        <div className="form-group">
+          <label>Colegio:</label>
+          <select name="colegio" value={curso.colegio} onChange={handleColegioChange} required>
+            <option value="">Seleccione Colegio</option>
+            {colegios.map((colegio) => (
+              <option key={colegio.OrganizationId} value={colegio.OrganizationId}>
+                {colegio.Name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="form-group">
+          <Button
+            variant="contained"
+            color={mostrarFormulario ? 'secondary' : 'primary'}
+            startIcon={mostrarFormulario ? <RemoveIcon /> : <AddIcon />}
+            onClick={handleMostrarFormulario}
+          >
+            {mostrarFormulario ? '- Volver a Modificar' : '+ Crear Curso'}
+          </Button>
+        </div>
+      </div>
+
+      {mostrarFormulario && (
+        <CursoFormulario
+          curso={curso}
+          setCurso={setCurso}
+          profesores={profesores}
+          setCursos={setCursos}
+          colegioSeleccionado={colegioSeleccionado}
+          cursoSeleccionado={cursoSeleccionado}
+        />
+      )}
+
+      <CursoListado cursos={cursos} onEditarCurso={handleEditarCurso} />
+    </div>
+  );
+}
+
+export default CrearCurso;

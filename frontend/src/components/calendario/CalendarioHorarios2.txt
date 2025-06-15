@@ -1,0 +1,92 @@
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import { Calendar, momentLocalizer } from 'react-big-calendar';
+import moment from 'moment';
+import 'moment/locale/es';
+import 'react-big-calendar/lib/css/react-big-calendar.css';
+
+moment.locale('es');
+const localizer = momentLocalizer(moment);
+
+const CalendarioHorarios = () => {
+    const [cursos, setCursos] = useState([
+        { id: 1, nombre: '4° Básico B' },
+        { id: 2, nombre: '5° Básico A' }
+    ]);
+    const [cursoSeleccionado, setCursoSeleccionado] = useState('');
+    const [eventos, setEventos] = useState([]);
+    const [diaSeleccionado, setDiaSeleccionado] = useState(null);
+    const [horariosDia, setHorariosDia] = useState([]);
+
+    const ejemploHorarios = {
+        1: [
+            { start: new Date(2025, 2, 4, 8, 0), end: new Date(2025, 2, 4, 8, 45), title: 'Matemáticas - Walter Castro' },
+            { start: new Date(2025, 2, 4, 9, 0), end: new Date(2025, 2, 4, 10, 30), title: 'Educación Física - Genesis Espinoza' },
+            { start: new Date(2025, 2, 4, 10, 45), end: new Date(2025, 2, 4, 12, 15), title: 'Orientación - Rocio Lasen' },
+            { start: new Date(2025, 2, 4, 13, 0), end: new Date(2025, 2, 4, 14, 30), title: 'Inglés - Docente: TBD' }
+        ]
+    };
+
+    const handleCursoChange = (e) => {
+        const cursoId = e.target.value;
+        setCursoSeleccionado(cursoId);
+        setEventos(ejemploHorarios[cursoId] || []);
+    };
+
+    const handleSelectEvent = (event) => {
+        setDiaSeleccionado(event.start);
+        setHorariosDia(eventos.filter(h => moment(h.start).isSame(event.start, 'day')));
+    };
+
+    return (
+        <div style={{ padding: '20px', textAlign: 'center' }}>
+            <h2>Gestión de Horarios</h2>
+            <label>Seleccionar Curso:</label>
+            <select onChange={handleCursoChange} value={cursoSeleccionado}>
+                <option value=''>Seleccione curso</option>
+                {cursos.map(curso => (
+                    <option key={curso.id} value={curso.id}>{curso.nombre}</option>
+                ))}
+            </select>
+            <div style={{ height: '500px', marginTop: '20px' }}>
+                <Calendar
+                    localizer={localizer}
+                    events={eventos}
+                    startAccessor="start"
+                    endAccessor="end"
+                    style={{ height: 500 }}
+                    messages={{
+                        next: "Siguiente",
+                        previous: "Anterior",
+                        today: "Hoy",
+                        month: "Mes",
+                        week: "Semana",
+                        day: "Día",
+                        agenda: "Agenda",
+                        date: "Fecha",
+                        time: "Hora",
+                        event: "Evento"
+                    }}
+                    onSelectEvent={handleSelectEvent}
+                />
+            </div>
+
+            {diaSeleccionado && (
+                <div style={{ marginTop: '20px', background: '#f9f9f9', padding: '15px', borderRadius: '8px' }}>
+                    <h3>Horarios para {moment(diaSeleccionado).format('dddd, D MMMM YYYY')}</h3>
+                    {horariosDia.length > 0 ? (
+                        horariosDia.map((horario, index) => (
+                            <div key={index} style={{ padding: '10px', borderBottom: '1px solid #ddd' }}>
+                                <p><strong>{moment(horario.start).format('HH:mm')} - {moment(horario.end).format('HH:mm')}</strong> | {horario.title}</p>
+                            </div>
+                        ))
+                    ) : (
+                        <p>No hay horarios disponibles para este día.</p>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default CalendarioHorarios;

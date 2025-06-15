@@ -1,0 +1,115 @@
+import React, { useState } from 'react';
+import axios from 'axios';
+
+const GuardarHorario = ({ horarios, cursoId }) => {
+  const [fechaInicio, setFechaInicio] = useState('');
+  const [fechaFin, setFechaFin] = useState('');
+  const [deHoyEnAdelante, setDeHoyEnAdelante] = useState(false);
+
+  const manejarGuardarHorarios = async () => {
+    // Validar si el curso está seleccionado
+    if (!cursoId) {
+      alert('El curso no ha sido seleccionado. Por favor, verifica.');
+      return;
+    }
+
+    // Validar fechas
+    if (!deHoyEnAdelante && (!fechaInicio || !fechaFin)) {
+      alert('Por favor seleccione un rango de fechas válido.');
+      return;
+    }
+
+    // Validar que haya horarios
+    if (!horarios || Object.keys(horarios).length === 0) {
+      alert('No hay horarios para guardar. Verifique los datos ingresados.');
+      return;
+    }
+
+    const rango = deHoyEnAdelante
+      ? { beginDate: new Date().toISOString(), endDate: null }
+      : { beginDate: fechaInicio, endDate: fechaFin };
+
+    const payload = {
+      calendarData: {
+        organizationId: cursoId, // ID del curso u organización
+        calendarCode: `CAL-${cursoId}`, // Código único del calendario
+        calendarDescription: 'Calendario generado automáticamente',
+        calendarYear: new Date().getFullYear(),
+        sessions: [
+          {
+            beginDate: rango.beginDate,
+            endDate: rango.endDate || `${new Date().getFullYear()}-12-31`,
+            description: 'Sesión automática para horarios',
+          },
+        ],
+      },
+
+      horarios: Object.entries(horarios).flatMap(([dia, bloques]) => 
+      bloques.map((bloque, index) => ({
+      classMeetingDays: dia, 
+      classBeginningTime: bloque.horaInicio,
+      classEndingTime: bloque.horaTermino,
+      classPeriod: `Bloque ${index + 1}`,  // 🔹 Aquí se asigna correctamente "Bloque 1", "Bloque 2", etc.
+   
+     // organizationId: bloque.asignatura, // Correcto, debe ser el ID de la asignatura 
+      // ✅ Verificar si asignatura ya es un número, de lo contrario, usar asignaturaId
+    organizationId: isNaN(bloque.asignatura) ? bloque.asignaturaId : +bloque.asignatura,
+
+
+    //  asignatura: bloque.asignatura,
+       asignatura: cursoId,
+      profesor: bloque.profesor,
+       tipoBloque: bloque.tipo || "clases",  // ✅ Agregar tipo de bloque
+    }))
+  ),
+
+
+
+    };
+
+   console.log("Payload enviado al backend:", JSON.stringify(payload, null, 2));
+   console.log("📌 Payload enviado a guardar horarios:", JSON.stringify(horarios, null, 2));
+
+
+    try {
+      console.log('Enviando datos al backend:', payload);
+      const response = await axios.post(
+        'http://localhost:5000/api/horarios/bulk', // URL completa del backend
+        payload
+      );
+      alert('Horarios guardados correctamente');
+      console.log('Respuesta del servidor:', response.data);
+    } catch (error) {
+      console.error('Error al guardar horarios:', error.response || error.message);
+      if (error.response) {
+        console.error('Detalles del error:', error.response.data);
+        alert(`Error del servidor: ${error.response.data.message || 'Error desconocido'}`);
+      } else {
+        alert('Ocurrió un error al guardar los horarios. Por favor, revisa los datos e inténtalo nuevamente.');
+      }
+    }
+  };
+
+  return (
+    <div className="guardar-horarios">
+      <h3>Guardar Horarios</h3>
+      <div>
+        <label>
+          <input type="checkbox" checked={deHoyEnAdelante} onChange={(e) => setDeHoyEnAdelante(e.target.checked)} />
+          De hoy en adelante
+        </label>
+      </div>
+      {!deHoyEnAdelante && (
+        <>
+          <label>Fecha Inicio:</label>
+          <input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} />
+          <label>Fecha Fin:</label>
+          <input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} />
+        </>
+      )}
+      <button onClick={manejarGuardarHorarios} disabled={!cursoId}>Guardar Horarios</button>
+    </div>
+  );
+};
+
+export default GuardarHorario;

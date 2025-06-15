@@ -1,0 +1,32 @@
+import React from 'react';
+import { AppBar, Toolbar, IconButton, Avatar } from '@material-ui/core';
+import CalendarTodayIcon from '@material-ui/icons/CalendarToday';
+import MessageIcon from '@material-ui/icons/Message';
+import NotificationsIcon from '@material-ui/icons/Notifications';
+import useStyles from '../styles/headerStyles';
+import alumnoImage from '../images/alumno.png';
+
+const Header = () => {
+  const classes = useStyles();
+
+  return (
+    <AppBar position="fixed" className={classes.appBar}>
+      <Toolbar className={classes.toolbar}>
+        <div className={classes.iconsContainer}>
+          <IconButton color="inherit">
+            <CalendarTodayIcon />
+          </IconButton>
+          <IconButton color="inherit">
+            <MessageIcon />
+          </IconButton>
+          <IconButton color="inherit">
+            <NotificationsIcon />
+          </IconButton>
+        </div>
+        <Avatar alt="Alumno" src={alumnoImage} className={classes.avatar} />
+      </Toolbar>
+    </AppBar>
+  );
+};
+
+export default Header;

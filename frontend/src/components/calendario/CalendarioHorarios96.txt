@@ -1,0 +1,834 @@
+/****************************************
+ * CalendarioHorarios.js (COMPLETO)
+ ****************************************/
+import React, { useState, useEffect } from 'react';
+import axios from 'axios'; 
+import { Calendar, momentLocalizer } from 'react-big-calendar';
+import moment from 'moment';
+import 'moment/locale/es';
+import 'react-big-calendar/lib/css/react-big-calendar.css';
+import {
+  TextField,
+  Tabs,
+  Tab,
+  Card,
+  CardContent,
+  Typography,
+  Grid,
+  Button,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  IconButton,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Checkbox
+} from '@material-ui/core';
+import DeleteIcon from '@material-ui/icons/Delete';
+import CheckCircleIcon from '@material-ui/icons/CheckCircleOutline';
+import RadioButtonUncheckedIcon from '@material-ui/icons/RadioButtonUnchecked';
+
+moment.locale('es');
+const localizer = momentLocalizer(moment);
+
+/************************************************
+ * (Tenías datos de ejemplo: cursosEjemplo, eventosEjemplo, etc. 
+ *  Los dejaremos, pero ya NO se usarán en el calendario.)
+ ************************************************/
+const estudiantesEjemplo = [
+  { id: 1, nombre: 'Aguirre Torrealba Benjamín Emiliano', estado: 'P' },
+  { id: 2, nombre: 'Astete Pérez Patricio Andrés', estado: 'P' },
+  // ...
+];
+
+/************************************************
+ * COMPONENTE DE GESTIÓN DE ASISTENCIA
+ ************************************************/
+const GestionAsistencia = () => {
+  const [asistencia, setAsistencia] = useState(estudiantesEjemplo);
+
+  const cambiarEstado = (id, nuevoEstado) => {
+    setAsistencia(asistencia.map(est => (est.id === id ? { ...est, estado: nuevoEstado } : est)));
+  };
+
+  return (
+    <Card style={{ margin: '20px' }}>
+      <CardContent>
+        <Typography variant="h5" style={{ marginBottom: '15px' }}>
+          Registro de Asistencia
+        </Typography>
+        <TableContainer component={Paper}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Nombre del Estudiante</TableCell>
+                <TableCell>Presente</TableCell>
+                <TableCell>Ausente</TableCell>
+                <TableCell>Atrasado</TableCell>
+                <TableCell>Retirado</TableCell>
+                <TableCell>Tipo de asistencia</TableCell>
+                <TableCell>Justificativo</TableCell>
+                <TableCell>Retirado por</TableCell>
+                <TableCell>Observaciones</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {asistencia.map(est => (
+                <TableRow key={est.id}>
+                  <TableCell>{est.nombre}</TableCell>
+                  <TableCell>
+                    <Checkbox
+                      checked={est.estado === 'P'}
+                      onChange={() => cambiarEstado(est.id, 'P')}
+                      color="primary"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Checkbox
+                      checked={est.estado === 'A'}
+                      onChange={() => cambiarEstado(est.id, 'A')}
+                      color="secondary"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Checkbox
+                      checked={est.estado === 'AT'}
+                      onChange={() => cambiarEstado(est.id, 'AT')}
+                      color="default"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Checkbox
+                      checked={est.estado === 'R'}
+                      onChange={() => cambiarEstado(est.id, 'R')}
+                      color="default"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Select defaultValue="Presencial" fullWidth>
+                      <MenuItem value="Presencial">Presencial</MenuItem>
+                      <MenuItem value="Virtual">Virtual</MenuItem>
+                    </Select>
+                  </TableCell>
+                  <TableCell>
+                    <IconButton>📎</IconButton>
+                  </TableCell>
+                  <TableCell>
+                    <Select defaultValue="No retirado" fullWidth>
+                      <MenuItem value="No retirado">No retirado</MenuItem>
+                      <MenuItem value="Madre">Madre</MenuItem>
+                      <MenuItem value="Padre">Padre</MenuItem>
+                      <MenuItem value="Tutor">Tutor</MenuItem>
+                    </Select>
+                  </TableCell>
+                  <TableCell>
+                    <TextField fullWidth variant="outlined" size="small" />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+        <Button variant="contained" color="primary" style={{ marginTop: '15px' }}>
+          Guardar Asistencia
+        </Button>
+      </CardContent>
+    </Card>
+  );
+};
+
+/************************************************
+ * COMPONENTE BloqueHorario
+ * (Cada "evento" del día se muestra con tus Tabs:
+ *  Planificación, Leccionario, Asistencia, Firma)
+ ************************************************/
+const BloqueHorario = ({
+  horario,              // Objeto transformado con { start, end, asignatura, bloque, duracion, etc. }
+  selectedColegio,
+ // selectedCurso, selectedCursoId,
+    selectedCursoId, selectedCursoName,
+ // selectedAsignatura, selectedAsignaturaId,
+  manejarCambioColegio,
+  colegios
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  const [tabIndex, setTabIndex] = useState(0);
+  const [objetivosAprendizaje, setObjetivosAprendizaje] = useState([]);
+
+  const [nivelSeleccionado, setNivelSeleccionado] = useState('4° Básico');
+  const [asignaturaSeleccionada, setAsignaturaSeleccionada] = useState('Matemática');
+  const [actividadRealizada, setActividadRealizada] = useState('');
+
+  const [curso, setCurso] = useState('');
+  const [asignaturaId, setAsignaturaId] = useState(null);
+  const [asignatura, setAsignatura] = useState('');
+  const [cursoId, setCursoId] = useState(null);
+
+  const [estadoCirculos, setEstadoCirculos] = useState({
+    oa: false,
+    leccionario: false,
+    asistencia: false,
+    firma: false
+  });
+
+
+
+
+  const handleDeclararOAyActividad = () => {
+    if (tabIndex === 1) {
+      setEstadoCirculos(prevState => ({
+        ...prevState,
+        oa: true,
+        leccionario: true
+      }));
+    }
+  };
+
+//CARGA DE OA desde la base de datos:
+// Estado para la lista real de OAs del backend
+const [oaList, setOaList] = useState([]);
+
+// Función para obtener OAs
+const fetchOAs = async (idAsignatura) => {
+  try {
+    const resp = await axios.get(`http://localhost:5000/api/calendariohorarios/learningobjectives/${idAsignatura}`);
+    setOaList(resp.data); // guardamos la respuesta
+  } catch (error) {
+    console.error('Error al obtener OAs:', error);
+  }
+};
+
+   
+
+
+
+
+
+  // Algunos OA de ejemplo
+  const objetivosEjemplo = [
+    { id: 1, texto: 'OA1: Comprender textos orales...' },
+    { id: 2, texto: 'OA2: Ejecutar actividades físicas...' },
+    { id: 3, texto: 'OA3: Practicar juegos deportivos...' }
+  ];
+
+  const [oaSeleccionado, setOaSeleccionado] = useState('');
+
+  const agregarOA = () => {
+    if (oaSeleccionado) {
+      const nuevoOA = objetivosEjemplo.find(oa => oa.id === parseInt(oaSeleccionado));
+      if (nuevoOA && !objetivosAprendizaje.some(o => o.id === nuevoOA.id)) {
+        setObjetivosAprendizaje([...objetivosAprendizaje, nuevoOA]);
+      }
+    }
+  };
+
+  const eliminarOA = (id) => {
+    setObjetivosAprendizaje(objetivosAprendizaje.filter(oa => oa.id !== id));
+  };
+
+  // Decidimos color de fondo si es "Recreo"
+  const cardStyle = {
+    marginBottom: '10px',
+    background: horario.asignatura === 'Recreo' ? '#FDF6C3' : '#FFF'
+  };
+
+useEffect(() => {
+  if (horario) {
+    // Aquí combinamos lo que viene de "horario" con tus props actuales
+    setCurso(selectedCursoName || horario.curso || 'No disponible');
+    setCursoId(selectedCursoId || horario.cursoId || 'No disponible');
+
+    // Como no tienes selectedAsignatura ni selectedAsignaturaId en las props,
+    // y tu "horario" tampoco lo define, lo dejas fijo o lo quitas completamente.
+    setAsignatura(horario.asignatura || 'No disponible');
+    setAsignaturaId(horario.asignaturaId || 'No disponible');
+
+  
+ // Si la asignaturaId es válido (distinto de "No disponible"), llamamos al fetch
+ if (horario && horario.asignaturaId && horario.asignaturaId !== 'No disponible') {
+   fetchOAs(horario.asignaturaId);
+ } else {
+   setOaList([]); // limpiamos la lista
+ }
+
+
+
+  }
+}, [
+  horario,
+  selectedCursoId,
+  selectedCursoName,
+]);
+
+
+
+  return (
+    <Card style={cardStyle}>
+      <CardContent>
+        <Grid container alignItems="center" spacing={2}>
+          <Grid item xs={10}>
+            <Typography variant="h6">
+              {horario.start} - {horario.end} | <strong>{horario.bloque}</strong> ({horario.duracion})
+            </Typography>
+            <Typography variant="body1">
+              <strong>{horario.asignatura}</strong> 
+              {horario.profesor && ` - ${horario.profesor}`}
+            </Typography>
+          </Grid>
+
+          <Grid item xs={2}>
+            <IconButton color="secondary">
+              <DeleteIcon />
+            </IconButton>
+          </Grid>
+        </Grid>
+
+        {/* Si NO es recreo => mostramos los "círculos" (OA, Leccionario, etc.) */}
+        {horario.asignatura !== 'Recreo' && (
+          <Grid
+            container
+            spacing={2}
+            justifyContent="center"
+            alignItems="center"
+            style={{ marginTop: '10px' }}
+          >
+            {['oa', 'leccionario', 'asistencia', 'firma'].map(key => (
+              <Grid item key={key}>
+                <IconButton
+                  onClick={() => {
+                    const tabMapping = {
+                      oa: 1,
+                      leccionario: 1,
+                      asistencia: 2,
+                      firma: 3
+                    };
+                    if (tabIndex === tabMapping[key]) {
+                      // Cierra si ya estaba en ese tab
+                      setExpanded(false);
+                      setTabIndex(null);
+                    } else {
+                      // Abre/va a tab
+                      setExpanded(true);
+                      setTabIndex(tabMapping[key]);
+                    }
+                  }}
+                >
+                  {estadoCirculos[key] ? (
+                    <CheckCircleIcon style={{ color: '#007BFF', fontSize: 48 }} />
+                  ) : (
+                    <RadioButtonUncheckedIcon style={{ color: '#CCC', fontSize: 48 }} />
+                  )}
+                </IconButton>
+                <Typography variant="caption" display="block" align="center" style={{ fontSize: '14px' }}>
+                  {key.charAt(0).toUpperCase() + key.slice(1)}
+                </Typography>
+              </Grid>
+            ))}
+          </Grid>
+        )}
+
+        {/* TABS */}
+        {expanded && (
+          <>
+            <Tabs
+              value={tabIndex}
+              onChange={(event, newValue) => setTabIndex(newValue)}
+              variant="fullWidth"
+              style={{
+                backgroundColor: '#E3F2FD',
+                borderRadius: '5px',
+                borderBottom: '2px solid #ddd',
+                display: 'flex',
+                justifyContent: 'space-around'
+              }}
+            >
+              <Tab
+                label="Planificación"
+                style={{
+                  backgroundColor: tabIndex === 0 ? '#1976D2' : '#E3F2FD',
+                  color: tabIndex === 0 ? 'white' : 'black',
+                  fontWeight: 'bold',
+                  flex: 1,
+                  textAlign: 'center'
+                }}
+              />
+              <Tab
+                label="Leccionario"
+                style={{
+                  backgroundColor: tabIndex === 1 ? '#1976D2' : '#E3F2FD',
+                  color: tabIndex === 1 ? 'white' : 'black',
+                  fontWeight: 'bold',
+                  flex: 1,
+                  textAlign: 'center'
+                }}
+              />
+              <Tab
+                label="Asistencia"
+                style={{
+                  backgroundColor: tabIndex === 2 ? '#1976D2' : '#E3F2FD',
+                  color: tabIndex === 2 ? 'white' : 'black',
+                  fontWeight: 'bold',
+                  flex: 1,
+                  textAlign: 'center'
+                }}
+              />
+              <Tab
+                label="Firma Digital"
+                style={{
+                  backgroundColor: tabIndex === 3 ? '#1976D2' : '#E3F2FD',
+                  color: tabIndex === 3 ? 'white' : 'black',
+                  fontWeight: 'bold',
+                  flex: 1,
+                  textAlign: 'center'
+                }}
+              />
+            </Tabs>
+
+            <div
+              style={{
+                padding: '20px',
+                backgroundColor: '#F8FAFC',
+                borderRadius: '5px',
+                marginTop: '10px'
+              }}
+            >
+              {/* TAB 0: Planificación */}
+              {tabIndex === 0 && (
+                <>
+                  <Typography variant="body1" style={{ marginBottom: '15px' }}>
+                    Asigne a este bloque la planificación de clase, de su banco.
+                  </Typography>
+                  <Grid container spacing={2} style={{ marginTop: '10px' }}>
+                    <Grid item xs={4}>
+                      <FormControl variant="outlined" fullWidth>
+                        <InputLabel>Nivel</InputLabel>
+                        <Select>
+                          <MenuItem value="Cuarto Básico">Cuarto Básico</MenuItem>
+                          <MenuItem value="Quinto Básico">Quinto Básico</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    <Grid item xs={4}>
+                      <FormControl variant="outlined" fullWidth>
+                        <InputLabel>Curso</InputLabel>
+                        <Select>
+                          <MenuItem value="4° Básico B">4° Básico B</MenuItem>
+                          <MenuItem value="5° Básico A">5° Básico A</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    <Grid item xs={4}>
+                      <FormControl variant="outlined" fullWidth>
+                        <InputLabel>Asignatura</InputLabel>
+                        <Select>
+                          <MenuItem value="Matemática">Matemática</MenuItem>
+                          <MenuItem value="Lenguaje">Lenguaje</MenuItem>
+                          <MenuItem value="Historia">Historia</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                  </Grid>
+                </>
+              )}
+
+              {/* TAB 1: Leccionario */}
+              {tabIndex === 1 && (
+                <>
+                  <Typography variant="body1" style={{ marginBottom: '15px' }}>
+                    Declare los atributos curriculares trabajados en este bloque.
+                  </Typography>
+
+                  
+                    {/* Mostrar Curso como Label manteniendo el ID */}
+               <Grid item xs={6} sm={4}>
+                    <Typography variant="body1">
+                      <strong>Curso:</strong>
+                    {/* (D) Mostrar la descripción y el ID en lugar de 'curso' y 'cursoId' */}
+                      {selectedCursoName} (ID: {selectedCursoId})
+                    </Typography>
+                  </Grid>
+
+
+              
+              {/* Mostrar Asignatura como Label manteniendo el ID */}
+              <Grid item xs={6} sm={4}>
+                <Typography variant="body1">
+                  <strong>Asignatura:</strong> {asignatura}  (ID: {asignaturaId})
+                </Typography>
+              </Grid>
+
+               
+
+                  {/* Objetivos de Aprendizaje */}
+                  <Grid container spacing={2} style={{ marginTop: '10px' }}>
+                    <Grid item xs={12} sm={8}>
+                      <FormControl variant="outlined" fullWidth>
+                        <InputLabel>Objetivos de Aprendizaje</InputLabel>
+
+                      
+                   	 <Select
+			   value={oaSeleccionado}
+			   onChange={(e) => setOaSeleccionado(e.target.value)}
+			   label="Objetivos de Aprendizaje"
+			 >
+			   {/* Recorremos la lista real del backend */}
+			   {oaList.map(oa => (
+			     <MenuItem key={oa.LearningObjectiveId} value={oa.LearningObjectiveId}>
+			       {oa.ObjectiveCode} - {oa.ObjectiveDescription}
+			     </MenuItem>
+			   ))}
+			 </Select>
+
+
+
+                      </FormControl>
+                    </Grid>
+                    <Grid item xs={12} sm={4}>
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        onClick={agregarOA}
+                        fullWidth
+                        style={{ marginTop: '2px' }}
+                      >
+                        + Agregar OA Personalizado
+                      </Button>
+                    </Grid>
+                  </Grid>
+
+                  {/* Lista de OA */}
+                  <div style={{ marginTop: '20px' }}>
+                    {objetivosAprendizaje.length > 0 ? (
+                      <>
+                        {objetivosAprendizaje.map(oa => (
+                          <Grid
+                            container
+                            key={oa.id}
+                            alignItems="center"
+                            spacing={2}
+                            style={{
+                              backgroundColor: '#F1F8E9',
+                              padding: '10px',
+                              borderRadius: '5px',
+                              marginBottom: '10px'
+                            }}
+                          >
+                            <Grid item xs={10}>
+                              <Typography variant="body1">
+                                <strong>{oa.texto}</strong>
+                              </Typography>
+                            </Grid>
+                            <Grid item xs={2}>
+                              <IconButton onClick={() => eliminarOA(oa.id)} color="secondary">
+                                <DeleteIcon />
+                              </IconButton>
+                            </Grid>
+                          </Grid>
+                        ))}
+                      </>
+                    ) : (
+                      <Typography variant="body2" color="textSecondary">
+                        No hay objetivos de aprendizaje agregados.
+                      </Typography>
+                    )}
+                  </div>
+
+                  {/* Actividades Realizadas */}
+                  <Typography variant="h6" style={{ marginTop: '20px' }}>
+                    Actividades Realizadas en este bloque:
+                  </Typography>
+
+                  <Grid container alignItems="center" spacing={2} style={{ marginBottom: '10px' }}>
+                    <Grid item xs={12}>
+                      <textarea
+                        rows="4"
+                        style={{
+                          width: '100%',
+                          padding: '10px',
+                          borderRadius: '5px',
+                          border: '1px solid #ccc',
+                          fontSize: '16px',
+                          resize: 'none'
+                        }}
+                        placeholder="Ingrese la actividad realizada..."
+                        value={actividadRealizada}
+                        onChange={(e) => setActividadRealizada(e.target.value)}
+                      />
+                    </Grid>
+                  </Grid>
+
+                  {/* Botón OA/Leccionario */}
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    style={{ marginTop: '10px', fontSize: '18px', padding: '12px 20px' }}
+                    onClick={handleDeclararOAyActividad}
+                  >
+                    ✅ Declarar OA y Actividad
+                  </Button>
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </CardContent>
+
+      {/* TAB 2 => Asistencia */}
+      {tabIndex === 2 && <GestionAsistencia />}
+    </Card>
+  );
+};
+
+/************************************************
+ * COMPONENTE PRINCIPAL: CalendarioHorarios
+ ************************************************/
+const CalendarioHorarios = () => {
+  const [colegios, setColegios] = useState([]);
+  const [cursos, setCursos] = useState([]);
+  const [selectedColegio, setSelectedColegio] = useState('');
+  const [selectedCurso, setSelectedCurso] = useState('');
+  const [selectedCursoName, setSelectedCursoName] = useState('');
+
+  // Aquí guardamos los eventos reales del backend
+  const [eventos, setEventos] = useState([]);
+
+  // Manejo de vista mensual / vista diaria
+  const [diaSeleccionado, setDiaSeleccionado] = useState(null);
+  const [eventosDia, setEventosDia] = useState([]);
+
+  // Al montar, cargar colegios
+  useEffect(() => {
+    fetchColegios();
+  }, []);
+
+  const fetchColegios = async () => {
+    try {
+      const response = await axios.get('http://localhost:5000/api/calendariohorarios/colegios');
+      setColegios(response.data);
+    } catch (error) {
+      console.error('Error al obtener los colegios:', error);
+    }
+  };
+
+  const fetchCursos = async (colegioId) => {
+    if (!colegioId) {
+      setCursos([]);
+      return;
+    }
+    try {
+      const response = await axios.get(`http://localhost:5000/api/calendariohorarios/cursos/${colegioId}`);
+      setCursos(response.data);
+    } catch (error) {
+      console.error('Error al obtener los cursos:', error);
+    }
+  };
+
+  // Obtener los eventos REALES
+  const fetchEventos = async (cursoId) => {
+    if (!cursoId) {
+      setEventos([]);
+      return;
+    }
+    try {
+      const resp = await axios.get(`http://localhost:5000/api/calendariohorarios/eventos/${cursoId}`);
+      // Convertimos start/end a Date
+      const data = resp.data.map(ev => ({
+        ...ev,
+        start: new Date(ev.start),
+        end: new Date(ev.end)
+      }));
+      setEventos(data);
+    } catch (error) {
+      console.error('Error al obtener eventos del curso:', error);
+      setEventos([]);
+    }
+  };
+
+  // Manejar cambio de Colegio
+  const manejarCambioColegio = (e) => {
+    const colegioId = e.target.value;
+    setSelectedColegio(colegioId);
+    setSelectedCurso('');
+    setEventos([]);
+    setDiaSeleccionado(null);
+    setEventosDia([]);
+    fetchCursos(colegioId);
+  };
+
+  // Manejar cambio de Curso
+const manejarCambioCurso = (e) => {
+  const cursoId = e.target.value;
+  setSelectedCurso(cursoId);
+
+  // (B) Buscar en el array de cursos el objeto con esa ID y extraer su 'Curso'
+  const objCurso = cursos.find(c => c.CursoOrganizationId === cursoId);
+  if (objCurso) {
+    setSelectedCursoName(objCurso.Curso); // p.ej. "110.01 - 1° Básico - A"
+  }
+
+  setDiaSeleccionado(null);
+  setEventosDia([]);
+  // Llamamos al backend para traer eventos
+  fetchEventos(cursoId);
+};
+
+  // Al seleccionar un evento en el calendario => ver detalles del día
+  const onSelectEvent = (event) => {
+    const fecha = moment(event.start).format('YYYY-MM-DD');
+    setDiaSeleccionado(fecha);
+
+    // Filtramos todos los eventos del array principal 'eventos' que coincidan con esa fecha
+    const mismosDia = eventos.filter(ev => moment(ev.start).format('YYYY-MM-DD') === fecha)
+    .sort((a, b) => new Date(a.start) - new Date(b.start));
+
+
+    // Convertimos cada "evento" a la estructura que BloqueHorario usa:
+    // Ej: { start: '09:00', end: '09:30', asignatura: 'Recreo' (o 'Clases'), bloque: 'Bloque X', duracion: 'XX Minutos', etc. }
+    const eventosTransformados = mismosDia.map(ev => {
+      const horaInicio = moment(ev.start).format('HH:mm');
+      const horaFin = moment(ev.end).format('HH:mm');
+
+      // Si la API ya te manda ev.asignatura y ev.profesor, úsalos:
+      // De lo contrario, si NO existe ev.asignatura, distingues Recreo/Clases como fallback.
+    let asignatura = ev.asignatura 
+      ? ev.asignatura 
+      : (ev.title.toLowerCase().includes('recreo') ? 'Recreo' : 'Clases');
+
+       
+    
+    // Profesor, si la API lo manda
+    //let profesor = ev.profesor ? ev.profesor : '';
+    let profesor = ev.profesor || '';
+    let asignaturaId = ev.asignaturaId || 'No disponible';
+
+
+
+      // Simplemente parseamos algo para 'bloque' si en title existe "Bloque1, Bloque2..."
+      // O extraer todo lo que quieras. Esto es un ejemplo.
+      let bloque = '';
+      let duracion = '';
+      // Podrías hacer un cálculito de duración con moment:
+      const diff = moment(ev.end).diff(moment(ev.start), 'minutes');
+      duracion = `${diff} minutos`;
+
+      // A veces tu 'title' ya dice: "08:03:00 Bloque de clases (Bloque1)"
+      // Si quieres extraer 'Bloque1', haz algo:
+      const match = ev.title.match(/\((Bloque[^\)]*)\)/i);
+      if (match && match[1]) {
+        bloque = match[1];
+      } else {
+        bloque = asignatura === 'Recreo' ? 'Recreo' : 'Bloque';
+      }
+
+      return {
+        start: horaInicio,
+        end: horaFin,
+        bloque,
+        duracion,
+        asignatura,
+        profesor, // si quisieras poner un profe, tendrías que sacar de la base
+        asignaturaId
+      };
+    });
+
+    setEventosDia(eventosTransformados);
+  };
+
+  return (
+    <div style={{ padding: '20px' }}>
+      <h2>Gestión de Horarios</h2>
+
+      {/* Selección de Colegio */}
+      <FormControl variant="outlined" style={{ minWidth: 250, marginRight: 20 }}>
+        <InputLabel>Colegio</InputLabel>
+        <Select
+          value={selectedColegio}
+          onChange={manejarCambioColegio}
+          label="Colegio"
+        >
+          <MenuItem value="">Seleccione un Colegio</MenuItem>
+          {colegios.map(col => (
+            <MenuItem key={col.OrganizationId} value={col.OrganizationId}>
+              {col.Name}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
+      {/* Selección de Curso */}
+      <FormControl variant="outlined" style={{ minWidth: 250 }}>
+        <InputLabel>Curso</InputLabel>
+        <Select
+          value={selectedCurso}
+          onChange={manejarCambioCurso}
+          label="Curso"
+        >
+          <MenuItem value="">Seleccione un Curso</MenuItem>
+          {cursos.map(cur => (
+            <MenuItem key={cur.CursoOrganizationId} value={cur.CursoOrganizationId}>
+              {cur.Curso}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
+      {/* Vista Mensual o Diaria */}
+      {!diaSeleccionado ? (
+        // VISTA MENSUAL
+        <div style={{ marginTop: 20 }}>
+          <Calendar
+            localizer={localizer}
+            events={eventos}
+            popup={true}
+            startAccessor="start"
+            endAccessor="end"
+            style={{ height: 500 }}
+            onSelectEvent={onSelectEvent}
+          />
+        </div>
+      ) : (
+        // VISTA DIARIA
+        <>
+          <Button
+            variant="contained"
+            color="secondary"
+            onClick={() => {
+              setDiaSeleccionado(null);
+              setEventosDia([]);
+            }}
+            style={{ marginTop: 20 }}
+          >
+            Volver a Vista Mensual
+          </Button>
+
+          <div style={{ marginTop: 20 }}>
+            <Typography variant="h5">
+              Detalle del día: {moment(diaSeleccionado).format('DD/MM/YYYY')}
+            </Typography>
+
+            {eventosDia.map((horario, idx) => (
+              <BloqueHorario
+                key={idx}
+                horario={horario}
+                selectedColegio={selectedColegio}
+                manejarCambioColegio={manejarCambioColegio}
+                colegios={colegios}
+                selectedCursoId={selectedCurso}       // ID
+                selectedCursoName={selectedCursoName} // descripción
+
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+export default CalendarioHorarios;

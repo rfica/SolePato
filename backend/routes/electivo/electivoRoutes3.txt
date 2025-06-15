@@ -1,0 +1,12 @@
+const express = require('express');
+const router = express.Router();
+const electivoController = require('../../controllers/electivo/ElectivoController');
+
+// Rutas para electivos
+router.post('/crear', electivoController.crearElectivo); // Crear un electivo
+
+router.get('/colegio/:colegioId/cursos', electivoController.getCursosPorColegio); // Obtener cursos por colegio
+router.post('/alumno/asignar', electivoController.asignarAlumno); // Asignar alumno a electivo
+router.post('/alumno/desasignar', electivoController.desasignarAlumno); // Desasignar alumno de electivo
+
+module.exports = router;

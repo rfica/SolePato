@@ -1,0 +1,332 @@
+const sql = require('mssql');
+const { poolPromise } = require('../../config/db'); // Asegúrate de que esta configuración es correcta
+
+// Obtener lista de colegios
+exports.obtenerColegios = async (req, res) => {
+    try {
+        const pool = await poolPromise;
+        const result = await pool.request().query(`
+            SELECT OrganizationId, Name 
+            FROM Organization 
+            WHERE RefOrganizationTypeId = 10  -- Asegura que este ID corresponde a colegios en tu BD
+        `);
+
+        res.status(200).json(result.recordset);
+    } catch (error) {
+        console.error("❌ Error al obtener colegios:", error);
+        res.status(500).json({ error: "Error al obtener colegios." });
+    }
+};
+
+// Obtener los cursos según el colegio seleccionado
+exports.obtenerCursosPorColegio = async (req, res) => {
+    const { colegioId } = req.params;
+
+    if (!colegioId || isNaN(colegioId)) {
+        return res.status(400).json({ message: "El ID del colegio es obligatorio y debe ser un número válido." });
+    }
+
+    try {
+        const pool = await poolPromise;
+
+        const query = `
+           WITH RecursiveHierarchy AS (
+    -- Paso inicial: Obtener la jerarquía desde el colegio
+    SELECT 
+        rel.OrganizationId, 
+        rel.Parent_OrganizationId,
+        org.Name,
+        org.RefOrganizationTypeId
+    FROM 
+        OrganizationRelationship rel
+    INNER JOIN 
+        Organization org ON rel.OrganizationId = org.OrganizationId
+    WHERE 
+        rel.Parent_OrganizationId = @ColegioId
+
+    UNION ALL
+
+    -- Recorremos la jerarquía recursivamente
+    SELECT 
+        rel.OrganizationId, 
+        rel.Parent_OrganizationId,
+        org.Name,
+        org.RefOrganizationTypeId
+    FROM 
+        OrganizationRelationship rel
+    INNER JOIN 
+        Organization org ON rel.OrganizationId = org.OrganizationId
+    INNER JOIN 
+        RecursiveHierarchy rh ON rel.Parent_OrganizationId = rh.OrganizationId
+),
+Grados AS (
+    -- Obtener los grados dentro de la jerarquía del colegio
+    SELECT 
+        rel.OrganizationId AS GradoId,
+        rel.Parent_OrganizationId AS CodigoEnsenanzaId,
+        CAST(org.Name AS NVARCHAR(128)) AS GradoName
+    FROM 
+        OrganizationRelationship rel
+    INNER JOIN 
+        Organization org ON rel.OrganizationId = org.OrganizationId
+    INNER JOIN 
+        RefOrganizationType ref ON org.RefOrganizationTypeId = ref.RefOrganizationTypeId
+    WHERE 
+        rel.Parent_OrganizationId IN (SELECT OrganizationId FROM RecursiveHierarchy)
+        AND ref.RefOrganizationElementTypeId = 46 -- Grados
+),
+Letras AS (
+    -- Obtener las letras asociadas a los grados
+    SELECT 
+        rel.OrganizationId AS LetraId,
+        rel.Parent_OrganizationId AS GradoId,
+        CAST(org.Name AS NVARCHAR(128)) AS LetraName
+    FROM 
+        OrganizationRelationship rel
+    INNER JOIN 
+        Organization org ON rel.OrganizationId = org.OrganizationId
+    INNER JOIN 
+        RefOrganizationType ref ON org.RefOrganizationTypeId = ref.RefOrganizationTypeId
+    WHERE 
+        rel.Parent_OrganizationId IN (SELECT GradoId FROM Grados)
+        AND ref.RefOrganizationElementTypeId = 21 -- Letras
+)
+-- Obtener los cursos con su OrganizationId
+SELECT DISTINCT
+    CONCAT(g.GradoName, ' - ', COALESCE(l.LetraName, '')) AS Curso,
+    l.LetraId AS CursoOrganizationId, -- El ID del curso en sí
+    g.GradoName, -- Incluir para ORDER BY
+    l.LetraName  -- Incluir para ORDER BY
+FROM 
+    Grados g
+LEFT JOIN 
+    Letras l ON g.GradoId = l.GradoId
+ORDER BY 
+    g.GradoName, l.LetraName;
+
+        `;
+
+        const result = await pool.request()
+            .input("ColegioId", sql.Int, colegioId)
+            .query(query);
+
+        res.status(200).json(result.recordset);
+    } catch (error) {
+        console.error("Error al obtener los cursos:", error);
+        res.status(500).json({ message: "Error al obtener los cursos.", error: error.message });
+    }
+};
+
+
+
+
+
+exports.obtenerEventosPorCurso = async (req, res) => {
+    const { cursoId } = req.params;
+
+    if (!cursoId || isNaN(cursoId)) {
+        return res.status(400).json({ message: "El ID del curso es obligatorio y debe ser un número válido." });
+    }
+
+    try {
+        const pool = await poolPromise;
+
+        // 1) Obtener los calendarios (OrganizationCalendar) de ese cursoId
+        const calendarsResult = await pool.request()
+            .input("CursoOrgId", sql.Int, cursoId)
+            .query(`
+                SELECT 
+                    OrganizationCalendarId, 
+                    OrganizationId, 
+                    CalendarCode, 
+                    CalendarDescription, 
+                    CalendarYear
+                FROM OrganizationCalendar
+                WHERE OrganizationId = @CursoOrgId
+            `);
+
+        const listaCalendarios = calendarsResult.recordset;
+        if (listaCalendarios.length === 0) {
+            // No hay calendarios
+            return res.status(200).json([]);
+        }
+        // IDs de todos los calendarios encontrados
+        const calendarIds = listaCalendarios.map(c => c.OrganizationCalendarId);
+
+        // 2) Obtener las sesiones (OrganizationCalendarSession)
+        const sessionsResult = await pool.request().query(`
+            SELECT 
+                OrganizationCalendarSessionId,
+                OrganizationCalendarId,
+                BeginDate,
+                EndDate,
+                Code,
+                Description,
+                InstructionalMinutes
+            FROM OrganizationCalendarSession
+            WHERE OrganizationCalendarId IN (${calendarIds.join(',')})
+        `);
+
+        const listaSesiones = sessionsResult.recordset;
+        if (listaSesiones.length === 0) {
+            // No hay sesiones => no habrá clases
+            // (podrían existir recreos si no se referencian a la sesión)
+        }
+
+        // 2.a) Determinar la fecha mínima (minBegin) y la fecha máxima (maxEnd)
+        //      de todas las sesiones, para iterar día a día en ese rango.
+        let minBegin = null;
+        let maxEnd = null;
+
+        listaSesiones.forEach(sess => {
+            if (sess.BeginDate) {
+                const bd = new Date(sess.BeginDate); 
+                if (!minBegin || bd < minBegin) {
+                    minBegin = bd;
+                }
+            }
+            if (sess.EndDate) {
+                const ed = new Date(sess.EndDate);
+                if (!maxEnd || ed > maxEnd) {
+                    maxEnd = ed;
+                }
+            }
+        });
+
+        // Si no hay minBegin o maxEnd => no hay fechas definidas => sin clases
+        if (!minBegin || !maxEnd) {
+            // Podrías devolver [] o continuar con recreos si quieres
+            // ...
+        }
+
+        // 3) Obtener clases (CourseSectionSchedule) 
+        //    por las sessionId => [1019, 1078, etc.]
+        const sessionIds = listaSesiones.map(s => s.OrganizationCalendarSessionId);
+
+        const courseScheduleResult = await pool.request().query(`
+            SELECT 
+                css.CourseSectionScheduleId,
+                css.OrganizationId,
+                css.ClassMeetingDays,
+                CONVERT(VARCHAR(8), css.ClassBeginningTime, 108) AS ClassBeginningTime,
+                CONVERT(VARCHAR(8), css.ClassEndingTime, 108)   AS ClassEndingTime,
+                css.ClassPeriod,
+                css.OrganizationCalendarSessionId
+            FROM CourseSectionSchedule css
+            WHERE css.OrganizationCalendarSessionId IN (${sessionIds.join(',')})
+        `);
+
+        const schedulesClases = courseScheduleResult.recordset;
+
+        // 4) Obtener recreos (RecessSchedule) (filtro actual: OrganizationId = cursoId)
+        //    (Opcional: podrías filtrar también por RecordStartDateTime/RecordEndDateTime
+        //              si deseas que los recreos respeten las fechas de la sesión.)
+        const recessResult = await pool.request()
+            .input("CursoOrgId", sql.Int, cursoId)
+            .query(`
+                SELECT 
+                    rs.RecessScheduleId,
+                    rs.OrganizationId,
+                    rs.ClassMeetingDays,
+                    CONVERT(VARCHAR(8), rs.RecessBeginningTime, 108) AS RecessBeginningTime,
+                    CONVERT(VARCHAR(8), rs.RecessEndingTime, 108)   AS RecessEndingTime,
+                    rs.ClassPeriod,
+                    rs.RecordStartDateTime,
+                    rs.RecordEndDateTime
+                FROM RecessSchedule rs
+                WHERE rs.OrganizationId = @CursoOrgId
+            `);
+
+        const schedulesRecreos = recessResult.recordset;
+
+        // 5) Mapear nombre de día => number
+        const mapDiaSemana = {
+            'Domingo': 0,
+            'Lunes': 1,
+            'Martes': 2,
+            'Miércoles': 3,
+            'Miercoles': 3,
+            'Jueves': 4,
+            'Viernes': 5,
+            'Sábado': 6,
+            'Sabado': 6
+        };
+
+        let eventos = [];
+
+        // 6) Iterar desde minBegin hasta maxEnd
+        //    => para cada día, buscar:
+        //       - clases => filtrar la(s) sesión(es) que contengan ese día
+        //       - recreos => si quieres, filtra por RecordStartDateTime, etc.
+        if (minBegin && maxEnd) {
+            for (let day = new Date(minBegin); day <= maxEnd; day.setDate(day.getDate() + 1)) {
+                const dayOfWeek = day.getDay(); // 0=Dom,1=Lun,...
+
+                // Filtramos las sesiones en las que este 'day' encaja [BeginDate..EndDate]
+                const sesionesDelDia = listaSesiones.filter(sess => {
+                    if (!sess.BeginDate || !sess.EndDate) return false;
+                    const b = new Date(sess.BeginDate);
+                    const e = new Date(sess.EndDate);
+                    return day >= b && day <= e;
+                });
+                // Podrían ser varias sesiones que se solapen, en tu caso, normal.
+
+                // 6.a) Clases
+                // Para cada clase => revisamos si su sessionId está en 'sesionesDelDia'
+                // y si coincide el dayOfWeek con sc.ClassMeetingDays
+                schedulesClases.forEach(sc => {
+                    const scSessionId = sc.OrganizationCalendarSessionId;
+                    const belongsToDay = sesionesDelDia.some(s => s.OrganizationCalendarSessionId === scSessionId);
+                    if (!belongsToDay) return;
+
+                    // dayOfWeek vs sc.ClassMeetingDays
+                    if (!sc.ClassMeetingDays) return;
+                    const mapped = mapDiaSemana[sc.ClassMeetingDays.trim()] ?? -1;
+                    if (mapped !== dayOfWeek) return;
+
+                    if (!sc.ClassBeginningTime || !sc.ClassEndingTime) return;
+                    const [bH, bM] = sc.ClassBeginningTime.split(':');
+                    const [eH, eM] = sc.ClassEndingTime.split(':');
+
+                    const start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), bH, bM);
+                    const end   = new Date(day.getFullYear(), day.getMonth(), day.getDate(), eH, eM);
+
+                    const title = `${sc.ClassBeginningTime} Bloque de clases (${sc.ClassPeriod || 'sin bloque'})`;
+                    eventos.push({ start, end, title });
+                });
+
+                // 6.b) Recreos
+                // (Si deseas también filtrar por la fecha de la sesión, hazlo).
+                schedulesRecreos.forEach(sr => {
+                    if (!sr.ClassMeetingDays) return;
+                    const mapped = mapDiaSemana[sr.ClassMeetingDays.trim()] ?? -1;
+                    if (mapped !== dayOfWeek) return;
+
+                    // TODO: Filtrar recreos por la fecha (si lo deseas), 
+                    // ej: if (sr.RecordStartDateTime && sr.RecordEndDateTime) ...
+                    //     skip si day < sr.RecordStartDateTime || day > sr.RecordEndDateTime
+
+                    if (!sr.RecessBeginningTime || !sr.RecessEndingTime) return;
+                    const [bH, bM] = sr.RecessBeginningTime.split(':');
+                    const [eH, eM] = sr.RecessEndingTime.split(':');
+
+                    const start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), bH, bM);
+                    const end   = new Date(day.getFullYear(), day.getMonth(), day.getDate(), eH, eM);
+
+                    const title = `${sr.RecessBeginningTime} Recreo de ${sr.ClassPeriod}`;
+                    eventos.push({ start, end, title });
+                });
+            }
+        }
+
+        // 7) Retornar la lista final de eventos
+        return res.status(200).json(eventos);
+
+    } catch (error) {
+        console.error("Error al obtener eventos del curso:", error);
+        return res.status(500).json({ 
+            message: "Error al obtener los eventos.", 
+            error: error.message 
+        });
+    }
+};

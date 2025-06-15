@@ -1,0 +1,280 @@
+/* estilos/notas.css */
+
+.notas-container {
+  padding: 2rem;
+  background-color: #f9f9f9;
+  min-height: 100vh;
+  font-family: 'Segoe UI', sans-serif;
+}
+
+.card {
+  background: #ffffff;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2rem;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1rem;
+  align-items: center;
+}
+
+.form-control {
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  width: 100%;
+  font-size: 0.95rem;
+}
+
+.btn {
+  background-color: #1976d2;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.3s ease;
+}
+
+.btn:hover {
+  background-color: #125ea7;
+}
+
+.btn-buscar {
+  grid-column: span 2;
+}
+
+.btn-agregar {
+  margin-top: 1rem;
+  background-color: #388e3c;
+}
+
+.btn-agregar:hover {
+  background-color: #2e7d32;
+}
+
+.error {
+  color: #d32f2f;
+  background-color: #fddede;
+  padding: 0.5rem;
+  margin-bottom: 1rem;
+  border-radius: 6px;
+}
+
+.botones-tipo-nota button {
+  margin-right: 1rem;
+  padding: 0.4rem 1rem;
+  border-radius: 6px;
+  border: 1px solid #1976d2;
+  background-color: white;
+  color: #1976d2;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.botones-tipo-nota .activo {
+  background-color: #1976d2;
+  color: white;
+}
+
+.componentes .componente {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.tabla-notas {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+.tabla-notas th, .tabla-notas td {
+  border: 1px solid #ddd;
+  padding: 0.5rem;
+  text-align: center;
+}
+
+.tabla-notas th {
+  background-color: #eeeeee;
+  font-weight: 600;
+}
+
+.input-nota {
+  width: 100%;
+  padding: 0.4rem;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  text-align: center;
+}
+
+/* --- Barra de navegación superior de notas --- */
+
+.notas-navbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background-color: #f0f8ff;
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 1.5rem;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  border-bottom: 1px solid #c7d0e1;
+  gap: 1.2rem;
+}
+
+.navbar-title {
+  color: #1976d2;
+  margin-right: 20px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.navbar-title svg {
+  margin-right: 4px;
+  font-size: 1.2em;
+}
+
+.notas-navbar .navbar-btn {
+  background: #1976d2;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.4rem 1.1rem;
+  font-size: 1rem;
+  font-weight: 500;
+  margin-right: 0.5rem;
+  cursor: pointer;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.notas-navbar .navbar-btn:hover {
+  background: #125ea7;
+}
+
+.notas-navbar .navbar-btn.red {
+  background: #d32f2f;
+}
+
+.notas-navbar .navbar-btn.red:hover {
+  background: #a62828;
+}
+
+.notas-navbar .navbar-btn.selected {
+  background: #fff;
+  color: #1976d2;
+  border: 1.5px solid #1976d2;
+}
+
+.notas-navbar .navbar-separator {
+  width: 1px;
+  height: 28px;
+  background: #bfc9db;
+  margin: 0 0.7rem;
+}
+
+.notas-navbar .navbar-switch {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: 1.2rem;
+}
+
+.notas-navbar .navbar-switch input[type="radio"] {
+  accent-color: #1976d2;
+}
+
+.notas-navbar .navbar-checkbox {
+  margin-left: 1.2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.notas-navbar .navbar-link {
+  color: #1976d2;
+  text-decoration: underline;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0.3rem 0.7rem;
+}
+
+@media (max-width: 900px) {
+  .notas-navbar {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.5rem 0.5rem;
+  }
+}
+
+.filtros-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.filtros-bar .form-control {
+  min-width: 160px;
+  max-width: 220px;
+}
+
+.btn-buscar {
+  min-width: 180px;
+  font-weight: 600;
+  background: #1976d2;
+  color: #fff;
+  border-radius: 6px;
+  border: none;
+  padding: 0.5rem 1rem;
+  margin-left: 1rem;
+  transition: background 0.2s;
+}
+
+.btn-buscar:hover {
+  background: #125ea7;
+}
+
+.filtros-botones {
+  display: flex;
+  gap: 0.7rem;
+  justify-content: flex-start;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.btn-accion {
+  background: #1976d2;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.5rem 1.1rem;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-accion:hover {
+  background: #125ea7;
+}
+
+.clickable {
+  color: blue; /* Color azul */
+  cursor: pointer; /* Cambia el cursor al pasar el mouse */
+  text-decoration: underline; /* Subrayado para indicar que es clicable */
+}
+
+.clickable:hover {
+  color: darkblue; /* Cambia a un azul más oscuro al pasar el mouse */
+}

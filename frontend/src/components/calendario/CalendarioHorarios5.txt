@@ -1,0 +1,178 @@
+import React, { useState } from 'react';
+import { Calendar, momentLocalizer } from 'react-big-calendar';
+import moment from 'moment';
+import 'moment/locale/es';
+import 'react-big-calendar/lib/css/react-big-calendar.css';
+import { Card, CardContent, Typography, IconButton, Grid, Button, MenuItem, FormControl, Select, InputLabel, Tabs, Tab } from '@material-ui/core';
+import DeleteIcon from '@material-ui/icons/Delete';
+import CheckCircleIcon from '@material-ui/icons/CheckCircleOutline';
+import RadioButtonUncheckedIcon from '@material-ui/icons/RadioButtonUnchecked';
+
+moment.locale('es');
+const localizer = momentLocalizer(moment);
+
+const cursosEjemplo = [
+    { id: 1, nombre: '4° Básico B' },
+    { id: 2, nombre: '5° Básico A' }
+];
+
+const eventosEjemplo = {
+    1: [
+        { start: new Date(2025, 2, 3, 8, 0), end: new Date(2025, 2, 3, 9, 30), title: '08:00 Bloque de 90 mins.' },
+        { start: new Date(2025, 2, 3, 9, 30), end: new Date(2025, 2, 3, 9, 45), title: '09:30 Recreo de 15 mins.' },
+        { start: new Date(2025, 2, 3, 9, 45), end: new Date(2025, 2, 3, 11, 15), title: '09:45 Bloque de 90 mins.' }
+    ]
+};
+
+const horariosEjemplo = {
+    '2025-03-03': [
+        { start: '08:00', end: '09:30', bloque: 'Bloque 1', duracion: '90 Minutos', asignatura: 'Matemática', profesor: 'Walter Alejandro Castro', estado: { oa: true, leccionario: true, asistencia: true, firma: true } },
+        { start: '09:30', end: '09:45', bloque: 'Recreo', duracion: '15 Minutos', asignatura: 'Recreo', profesor: '', estado: { oa: false, leccionario: false, asistencia: false, firma: false } }
+    ]
+};
+
+const BloqueHorario = ({ horario }) => {
+    const [expanded, setExpanded] = useState(false);
+    const [tabIndex, setTabIndex] = useState(0);
+
+    return (
+        <Card style={{ marginBottom: '10px', background: horario.asignatura === 'Recreo' ? '#FDF6C3' : '#FFF' }}>
+            <CardContent>
+                <Grid container alignItems="center" spacing={2}>
+                    <Grid item xs={10}>
+                        <Typography variant="h6">
+                            {horario.start} - {horario.end} | <strong>{horario.bloque}</strong> ({horario.duracion})
+                        </Typography>
+                        <Typography variant="body1">
+                            <strong>{horario.asignatura}</strong> {horario.profesor && `- ${horario.profesor}`}
+                        </Typography>
+                    </Grid>
+                    <Grid item xs={2}>
+                        <IconButton color="secondary">
+                            <DeleteIcon />
+                        </IconButton>
+                    </Grid>
+                </Grid>
+                {horario.asignatura !== 'Recreo' && (
+                    <Grid container spacing={1} style={{ marginTop: '10px' }}>
+                        {['oa', 'leccionario', 'asistencia', 'firma'].map((key) => (
+                            <Grid item key={key}>
+                                <IconButton onClick={() => setExpanded(!expanded)}>
+                                    {horario.estado[key] ? (
+                                        <CheckCircleIcon style={{ color: '#007BFF', fontSize: 32 }} />
+                                    ) : (
+                                        <RadioButtonUncheckedIcon style={{ color: '#CCC', fontSize: 32 }} />
+                                    )}
+                                </IconButton>
+                                <Typography variant="caption" display="block" align="center">
+                                    {key.charAt(0).toUpperCase() + key.slice(1)}
+                                </Typography>
+                            </Grid>
+                        ))}
+                    </Grid>
+                )}
+                {expanded && (
+                    <>
+                        <Tabs value={tabIndex} onChange={(event, newValue) => setTabIndex(newValue)} indicatorColor="primary" textColor="primary">
+                            <Tab label="Planificación" />
+
+
+{tabIndex === 0 && ( // Solo en la pestaña de "Planificación"
+    <Grid container spacing={2} style={{ marginTop: '150px' }}>
+        <Grid item xs={4}>
+            <FormControl variant="outlined" fullWidth>
+                <InputLabel>Nivel</InputLabel>
+                <Select>
+                    <MenuItem value="Cuarto Básico">Cuarto Básico</MenuItem>
+                    <MenuItem value="Quinto Básico">Quinto Básico</MenuItem>
+                </Select>
+            </FormControl>
+        </Grid>
+
+        <Grid item xs={4}>
+            <FormControl variant="outlined" fullWidth>
+                <InputLabel>Curso</InputLabel>
+                <Select>
+                    <MenuItem value="4° Básico B">4° Básico B</MenuItem>
+                    <MenuItem value="5° Básico A">5° Básico A</MenuItem>
+                </Select>
+            </FormControl>
+        </Grid>
+
+        <Grid item xs={4}>
+            <FormControl variant="outlined" fullWidth>
+                <InputLabel>Asignatura</InputLabel>
+                <Select>
+                    <MenuItem value="Matemática">Matemática</MenuItem>
+                    <MenuItem value="Lenguaje">Lenguaje</MenuItem>
+                    <MenuItem value="Historia">Historia</MenuItem>
+                </Select>
+            </FormControl>
+        </Grid>
+    </Grid>
+)}
+
+
+
+
+
+                            <Tab label="Leccionario" />
+                            <Tab label="Asistencia" />
+                            <Tab label="Observaciones" />
+                            <Tab label="Firma Digital" />
+                        </Tabs>
+                    </>
+                )}
+            </CardContent>
+        </Card>
+    );
+};
+const CalendarioHorarios = () => {
+    const [cursoSeleccionado, setCursoSeleccionado] = useState(1);
+    const [diaSeleccionado, setDiaSeleccionado] = useState(null);
+
+    return (
+        <div style={{ padding: '20px', textAlign: 'center' }}>
+            <h2>Gestión de Horarios</h2>
+
+            {/* Agregamos el ListBox de selección de curso */}
+            <FormControl variant="outlined" style={{ minWidth: 250, marginBottom: '20px' }}>
+                <InputLabel>Seleccionar Curso</InputLabel>
+                <Select
+                    value={cursoSeleccionado}
+                    onChange={(event) => setCursoSeleccionado(event.target.value)}
+                    label="Seleccionar Curso"
+                >
+                    {cursosEjemplo.map((curso) => (
+                        <MenuItem key={curso.id} value={curso.id}>
+                            {curso.nombre}
+                        </MenuItem>
+                    ))}
+                </Select>
+            </FormControl>
+
+            {/* Vista del Calendario Mensual o Diaria */}
+            {!diaSeleccionado ? (
+                <Calendar
+                    localizer={localizer}
+                    events={eventosEjemplo[cursoSeleccionado] || []}
+                    startAccessor="start"
+                    endAccessor="end"
+                    style={{ height: 500 }}
+                    onSelectEvent={(event) => setDiaSeleccionado(moment(event.start).format('YYYY-MM-DD'))}
+                />
+            ) : (
+                <>
+                    <Button variant="contained" color="secondary" onClick={() => setDiaSeleccionado(null)}>
+                        Volver a Vista Mensual
+                    </Button>
+                    {horariosEjemplo[diaSeleccionado]?.map((horario, index) => (
+                        <BloqueHorario key={index} horario={horario} />
+                    ))}
+                </>
+            )}
+        </div>
+    );
+};
+
+export default CalendarioHorarios;

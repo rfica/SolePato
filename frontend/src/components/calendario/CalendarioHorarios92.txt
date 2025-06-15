@@ -1,0 +1,793 @@
+/****************************************
+ * CalendarioHorarios.js (COMPLETO)
+ ****************************************/
+import React, { useState, useEffect } from 'react';
+import axios from 'axios'; // <-- Asegúrate de tener instalado axios en tu frontend (npm install axios)
+import { Calendar, momentLocalizer } from 'react-big-calendar';
+import moment from 'moment';
+import 'moment/locale/es';
+import 'react-big-calendar/lib/css/react-big-calendar.css';
+import {
+  TextField,
+  Tabs,
+  Tab,
+  Card,
+  CardContent,
+  Typography,
+  Grid,
+  Button,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  IconButton,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Checkbox
+} from '@material-ui/core';
+import DeleteIcon from '@material-ui/icons/Delete';
+import CheckCircleIcon from '@material-ui/icons/CheckCircleOutline';
+import RadioButtonUncheckedIcon from '@material-ui/icons/RadioButtonUnchecked';
+
+moment.locale('es');
+const localizer = momentLocalizer(moment);
+
+/************************************************
+ * EJEMPLOS de datos “quemados” (de aquí en adelante
+ * los iremos reemplazando poco a poco).
+ ************************************************/
+const cursosEjemplo = [
+  { id: 1, nombre: '4° Básico B' },
+  { id: 2, nombre: '5° Básico A' }
+];
+
+const eventosEjemplo = {
+  1: [
+    { start: new Date(2025, 2, 3, 8, 0), end: new Date(2025, 2, 3, 9, 30), title: '08:00 Bloque de 90 mins.' },
+    { start: new Date(2025, 2, 3, 9, 30), end: new Date(2025, 2, 3, 9, 45), title: '09:30 Recreo de 15 mins.' },
+    { start: new Date(2025, 2, 3, 9, 45), end: new Date(2025, 2, 3, 11, 15), title: '09:45 Bloque de 90 mins.' }
+  ]
+};
+
+const horariosEjemplo = {
+  '2025-03-03': [
+    {
+      start: '08:00',
+      end: '09:30',
+      bloque: 'Bloque 1',
+      duracion: '90 Minutos',
+      asignatura: 'Matemática',
+      profesor: 'Walter Alejandro Castro',
+      estado: { oa: true, leccionario: true, asistencia: true, firma: true }
+    },
+    {
+      start: '09:30',
+      end: '09:45',
+      bloque: 'Recreo',
+      duracion: '15 Minutos',
+      asignatura: 'Recreo',
+      profesor: '',
+      estado: { oa: false, leccionario: false, asistencia: false, firma: false }
+    }
+  ]
+};
+
+const estudiantesEjemplo = [
+  { id: 1, nombre: 'Aguirre Torrealba Benjamín Emiliano', estado: 'P' },
+  { id: 2, nombre: 'Astete Pérez Patricio Andrés', estado: 'P' },
+  { id: 3, nombre: 'Astudillo Hurtado Emyleen Arisbeth', estado: 'P' },
+  { id: 4, nombre: 'Contreras Padilla Lucas Aaron', estado: 'P' },
+  { id: 5, nombre: 'Espinoza Jimena', estado: 'P' },
+  { id: 6, nombre: 'Guzmán Saldivia Cristóbal Alonso', estado: 'A' },
+  { id: 7, nombre: 'Martínez Azagra Julieta Anastasia', estado: 'P' },
+  { id: 8, nombre: 'Miranda Ibacache Máximo Fabiano', estado: 'P' },
+  { id: 9, nombre: 'Muñoz Larenas Anahis Pascal', estado: 'P' },
+  { id: 10, nombre: 'Ramírez Hurtado Trinidad Pascuala', estado: 'P' }
+];
+
+/************************************************
+ * GESTIÓN DE ASISTENCIA
+ ************************************************/
+const GestionAsistencia = () => {
+  const [asistencia, setAsistencia] = useState(estudiantesEjemplo);
+
+  const cambiarEstado = (id, nuevoEstado) => {
+    setAsistencia(asistencia.map(est => (est.id === id ? { ...est, estado: nuevoEstado } : est)));
+  };
+
+  return (
+    <Card style={{ margin: '20px' }}>
+      <CardContent>
+        <Typography variant="h5" style={{ marginBottom: '15px' }}>
+          Registro de Asistencia
+        </Typography>
+        <TableContainer component={Paper}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Nombre del Estudiante</TableCell>
+                <TableCell>Presente</TableCell>
+                <TableCell>Ausente</TableCell>
+                <TableCell>Atrasado</TableCell>
+                <TableCell>Retirado</TableCell>
+                <TableCell>Tipo de asistencia</TableCell>
+                <TableCell>Justificativo</TableCell>
+                <TableCell>Retirado por</TableCell>
+                <TableCell>Observaciones</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {asistencia.map(est => (
+                <TableRow key={est.id}>
+                  <TableCell>{est.nombre}</TableCell>
+                  <TableCell>
+                    <Checkbox
+                      checked={est.estado === 'P'}
+                      onChange={() => cambiarEstado(est.id, 'P')}
+                      color="primary"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Checkbox
+                      checked={est.estado === 'A'}
+                      onChange={() => cambiarEstado(est.id, 'A')}
+                      color="secondary"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Checkbox
+                      checked={est.estado === 'AT'}
+                      onChange={() => cambiarEstado(est.id, 'AT')}
+                      color="default"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Checkbox
+                      checked={est.estado === 'R'}
+                      onChange={() => cambiarEstado(est.id, 'R')}
+                      color="default"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Select defaultValue="Presencial" fullWidth>
+                      <MenuItem value="Presencial">Presencial</MenuItem>
+                      <MenuItem value="Virtual">Virtual</MenuItem>
+                    </Select>
+                  </TableCell>
+                  <TableCell>
+                    <IconButton>📎</IconButton>
+                  </TableCell>
+                  <TableCell>
+                    <Select defaultValue="No retirado" fullWidth>
+                      <MenuItem value="No retirado">No retirado</MenuItem>
+                      <MenuItem value="Madre">Madre</MenuItem>
+                      <MenuItem value="Padre">Padre</MenuItem>
+                      <MenuItem value="Tutor">Tutor</MenuItem>
+                    </Select>
+                  </TableCell>
+                  <TableCell>
+                    <TextField fullWidth variant="outlined" size="small" />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+        <Button variant="contained" color="primary" style={{ marginTop: '15px' }}>
+          Guardar Asistencia
+        </Button>
+      </CardContent>
+    </Card>
+  );
+};
+
+/************************************************
+ * COMPONENTE BloqueHorario
+ ************************************************/
+const BloqueHorario = ({
+  horario,
+  selectedColegio,
+  manejarCambioColegio,
+  colegios
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  const [tabIndex, setTabIndex] = useState(0);
+  const [objetivosAprendizaje, setObjetivosAprendizaje] = useState([]);
+
+  const [nivelSeleccionado, setNivelSeleccionado] = useState('4° Básico');
+  const [asignaturaSeleccionada, setAsignaturaSeleccionada] = useState('Matemática');
+  const [actividadRealizada, setActividadRealizada] = useState('');
+
+  const [estadoCirculos, setEstadoCirculos] = useState({
+    oa: false,
+    leccionario: false,
+    asistencia: false,
+    firma: false
+  });
+
+  const handleDeclararOAyActividad = () => {
+    if (tabIndex === 1) {
+      setEstadoCirculos(prevState => ({
+        ...prevState,
+        oa: true,
+        leccionario: true
+      }));
+    }
+  };
+
+  const objetivosEjemplo = [
+    { id: 1, texto: 'OA1: Comprender textos orales relacionados con temas conocidos o de otras asignaturas' },
+    { id: 2, texto: 'OA2: Ejecutar actividades físicas de intensidad moderada' },
+    { id: 3, texto: 'OA3: Practicar juegos deportivos con reglas y espacios adaptados' }
+  ];
+
+  const [oaSeleccionado, setOaSeleccionado] = useState('');
+
+  const agregarOA = () => {
+    if (oaSeleccionado) {
+      const nuevoOA = objetivosEjemplo.find(oa => oa.id === parseInt(oaSeleccionado));
+      if (nuevoOA && !objetivosAprendizaje.some(oa => oa.id === nuevoOA.id)) {
+        setObjetivosAprendizaje([...objetivosAprendizaje, nuevoOA]);
+      }
+    }
+  };
+
+  const eliminarOA = id => {
+    setObjetivosAprendizaje(objetivosAprendizaje.filter(oa => oa.id !== id));
+  };
+
+  return (
+    <Card
+      style={{
+        marginBottom: '10px',
+        background: horario.asignatura === 'Recreo' ? '#FDF6C3' : '#FFF'
+      }}
+    >
+      <CardContent>
+        <Grid container alignItems="center" spacing={2}>
+          <Grid item xs={10}>
+            <Typography variant="h6">
+              {horario.start} - {horario.end} | <strong>{horario.bloque}</strong> ({horario.duracion})
+            </Typography>
+            <Typography variant="body1">
+              <strong>{horario.asignatura}</strong>{' '}
+              {horario.profesor && `- ${horario.profesor}`}
+            </Typography>
+          </Grid>
+
+          <Grid item xs={2}>
+            <IconButton color="secondary">
+              <DeleteIcon />
+            </IconButton>
+          </Grid>
+        </Grid>
+
+        {horario.asignatura !== 'Recreo' && (
+          <Grid
+            container
+            spacing={2}
+            justifyContent="center"
+            alignItems="center"
+            style={{ marginTop: '10px' }}
+          >
+            {['oa', 'leccionario', 'asistencia', 'firma'].map(key => (
+              <Grid item key={key}>
+                <IconButton
+                  onClick={() => {
+                    if (
+                      tabIndex ===
+                      (key === 'oa'
+                        ? 1
+                        : key === 'leccionario'
+                        ? 1
+                        : key === 'asistencia'
+                        ? 2
+                        : 3)
+                    ) {
+                      // Cierra los tabs si se vuelve a presionar el mismo círculo
+                      setExpanded(false);
+                      setTabIndex(null);
+                    } else {
+                      // Abre los tabs si se presiona un círculo diferente
+                      setExpanded(true);
+                      setTabIndex(
+                        key === 'oa'
+                          ? 1
+                          : key === 'leccionario'
+                          ? 1
+                          : key === 'asistencia'
+                          ? 2
+                          : 3
+                      );
+                    }
+                  }}
+                >
+                  {estadoCirculos[key] ? (
+                    <CheckCircleIcon style={{ color: '#007BFF', fontSize: 48 }} />
+                  ) : (
+                    <RadioButtonUncheckedIcon style={{ color: '#CCC', fontSize: 48 }} />
+                  )}
+                </IconButton>
+                <Typography
+                  variant="caption"
+                  display="block"
+                  align="center"
+                  style={{ fontSize: '14px' }}
+                >
+                  {key.charAt(0).toUpperCase() + key.slice(1)}
+                </Typography>
+              </Grid>
+            ))}
+          </Grid>
+        )}
+
+        {expanded && (
+          <>
+            <Tabs
+              value={tabIndex}
+              onChange={(event, newValue) => setTabIndex(newValue)}
+              variant="fullWidth"
+              style={{
+                backgroundColor: '#E3F2FD',
+                borderRadius: '5px',
+                borderBottom: '2px solid #ddd',
+                display: 'flex',
+                justifyContent: 'space-around'
+              }}
+            >
+              <Tab
+                label="Planificación"
+                style={{
+                  backgroundColor: tabIndex === 0 ? '#1976D2' : '#E3F2FD',
+                  color: tabIndex === 0 ? 'white' : 'black',
+                  fontWeight: 'bold',
+                  flex: 1,
+                  textAlign: 'center'
+                }}
+              />
+              <Tab
+                label="Leccionario"
+                style={{
+                  backgroundColor: tabIndex === 1 ? '#1976D2' : '#E3F2FD',
+                  color: tabIndex === 1 ? 'white' : 'black',
+                  fontWeight: 'bold',
+                  flex: 1,
+                  textAlign: 'center'
+                }}
+              />
+              <Tab
+                label="Asistencia"
+                style={{
+                  backgroundColor: tabIndex === 2 ? '#1976D2' : '#E3F2FD',
+                  color: tabIndex === 2 ? 'white' : 'black',
+                  fontWeight: 'bold',
+                  flex: 1,
+                  textAlign: 'center'
+                }}
+              />
+              <Tab
+                label="Firma Digital"
+                style={{
+                  backgroundColor: tabIndex === 4 ? '#1976D2' : '#E3F2FD',
+                  color: tabIndex === 4 ? 'white' : 'black',
+                  fontWeight: 'bold',
+                  flex: 1,
+                  textAlign: 'center'
+                }}
+              />
+            </Tabs>
+
+            <div
+              style={{
+                padding: '20px',
+                backgroundColor: '#F8FAFC',
+                borderRadius: '5px',
+                marginTop: '10px'
+              }}
+            >
+              {/* TAB 0: PLANIFICACIÓN */}
+              {tabIndex === 0 && (
+                <>
+                  <Typography variant="body1" style={{ marginBottom: '15px' }}>
+                    Asigne a este bloque la planificación de clase, de su banco.
+                  </Typography>
+                  <Grid container spacing={2} style={{ marginTop: '10px' }}>
+                    <Grid item xs={4}>
+                      <FormControl variant="outlined" fullWidth>
+                        <InputLabel>Nivel</InputLabel>
+                        <Select>
+                          <MenuItem value="Cuarto Básico">Cuarto Básico</MenuItem>
+                          <MenuItem value="Quinto Básico">Quinto Básico</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Grid>
+
+                    <Grid item xs={4}>
+                      <FormControl variant="outlined" fullWidth>
+                        <InputLabel>Curso</InputLabel>
+                        <Select>
+                          <MenuItem value="4° Básico B">4° Básico B</MenuItem>
+                          <MenuItem value="5° Básico A">5° Básico A</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Grid>
+
+                    <Grid item xs={4}>
+                      <FormControl variant="outlined" fullWidth>
+                        <InputLabel>Asignatura</InputLabel>
+                        <Select>
+                          <MenuItem value="Matemática">Matemática</MenuItem>
+                          <MenuItem value="Lenguaje">Lenguaje</MenuItem>
+                          <MenuItem value="Historia">Historia</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                  </Grid>
+                </>
+              )}
+
+              {/* TAB 1: LECCIONARIO */}
+              {tabIndex === 1 && (
+                <>
+                  <Typography variant="body1" style={{ marginBottom: '15px' }}>
+                    Declare los atributos curriculares trabajados en este bloque.
+                  </Typography>
+
+                  <Grid container spacing={2} alignItems="center">
+                    {/* COLEGIO (Cargado desde backend) */}
+                    <Grid item xs={6} sm={4}>
+                      <FormControl variant="outlined" fullWidth>
+                        <InputLabel>Colegio</InputLabel>
+                        <Select
+                          value={selectedColegio}
+                          onChange={manejarCambioColegio}
+                          label="Colegio"
+                        >
+                          <MenuItem value="">Seleccione un colegio</MenuItem>
+                          {colegios.map(colegio => (
+                            <MenuItem
+                              key={colegio.OrganizationId}
+                              value={colegio.OrganizationId}
+                            >
+                              {colegio.Name}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+
+                    {/* NIVEL (ejemplo local, a futuro también se extraerá desde el backend) */}
+                    <Grid item xs={6} sm={4}>
+                      <FormControl variant="outlined" fullWidth>
+                        <InputLabel>Nivel</InputLabel>
+                        <Select
+                          value={nivelSeleccionado}
+                          onChange={e => setNivelSeleccionado(e.target.value)}
+                          label="Nivel"
+                        >
+                          <MenuItem value="4° Básico">4° Básico</MenuItem>
+                          <MenuItem value="5° Básico">5° Básico</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Grid>
+
+                    {/* ASIGNATURA (ejemplo local) */}
+                    <Grid item xs={12} sm={4}>
+                      <FormControl variant="outlined" fullWidth>
+                        <InputLabel>Asignatura</InputLabel>
+                        <Select
+                          value={asignaturaSeleccionada}
+                          onChange={e => setAsignaturaSeleccionada(e.target.value)}
+                          label="Asignatura"
+                        >
+                          <MenuItem value="Matemática">Matemática</MenuItem>
+                          <MenuItem value="Lenguaje">Lenguaje</MenuItem>
+                          <MenuItem value="Historia">Historia</MenuItem>
+                          <MenuItem value="Educación Física">
+                            Educación Física
+                          </MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                  </Grid>
+
+                  {/* Objetivos de Aprendizaje */}
+                  <Grid container spacing={2} style={{ marginTop: '10px' }}>
+                    <Grid item xs={12} sm={8}>
+                      <FormControl variant="outlined" fullWidth>
+                        <InputLabel>Objetivos de Aprendizaje</InputLabel>
+                        <Select
+                          value={oaSeleccionado}
+                          onChange={e => setOaSeleccionado(e.target.value)}
+                          label="Objetivos de Aprendizaje"
+                        >
+                          {objetivosEjemplo.map(oa => (
+                            <MenuItem key={oa.id} value={oa.id}>
+                              {oa.texto}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    <Grid item xs={12} sm={4}>
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        onClick={agregarOA}
+                        fullWidth
+                        style={{ marginTop: '2px' }}
+                      >
+                        + Agregar OA Personalizado
+                      </Button>
+                    </Grid>
+                  </Grid>
+
+                  <div style={{ marginTop: '20px' }}>
+                    {objetivosAprendizaje.length > 0 ? (
+                      <>
+                        {objetivosAprendizaje.map(oa => (
+                          <Grid
+                            container
+                            key={oa.id}
+                            alignItems="center"
+                            spacing={2}
+                            style={{
+                              backgroundColor: '#F1F8E9',
+                              padding: '10px',
+                              borderRadius: '5px',
+                              marginBottom: '10px'
+                            }}
+                          >
+                            <Grid item xs={10}>
+                              <Typography variant="body1">
+                                <strong>{oa.texto}</strong>
+                              </Typography>
+                            </Grid>
+                            <Grid item xs={2}>
+                              <IconButton
+                                onClick={() => eliminarOA(oa.id)}
+                                color="secondary"
+                              >
+                                <DeleteIcon />
+                              </IconButton>
+                            </Grid>
+                          </Grid>
+                        ))}
+                      </>
+                    ) : (
+                      <Typography variant="body2" color="textSecondary">
+                        No hay objetivos de aprendizaje agregados.
+                      </Typography>
+                    )}
+                  </div>
+
+                  {/* ACTIVIDAD REALIZADA */}
+                  <Typography variant="h6" style={{ marginTop: '20px' }}>
+                    Actividades Realizadas en este bloque:
+                  </Typography>
+
+                  <Grid
+                    container
+                    alignItems="center"
+                    spacing={2}
+                    style={{ marginBottom: '10px' }}
+                  >
+                    <Grid item xs={12}>
+                      <textarea
+                        rows="4"
+                        style={{
+                          width: '100%',
+                          padding: '10px',
+                          borderRadius: '5px',
+                          border: '1px solid #ccc',
+                          fontSize: '16px',
+                          resize: 'none'
+                        }}
+                        placeholder="Ingrese la actividad realizada..."
+                        value={actividadRealizada}
+                        onChange={e => setActividadRealizada(e.target.value)}
+                      />
+                    </Grid>
+                  </Grid>
+
+                  {/* Botón para activar los círculos OA / Leccionario */}
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    style={{ marginTop: '10px', fontSize: '18px', padding: '12px 20px' }}
+                    onClick={() => {
+                      if (tabIndex === 1) {
+                        setEstadoCirculos({
+                          ...estadoCirculos,
+                          oa: true,
+                          leccionario: true
+                        });
+                        setExpanded(true);
+                      }
+                    }}
+                  >
+                    ✅ Declarar OA y Actividad
+                  </Button>
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </CardContent>
+
+      {/* TAB 2: ASISTENCIA (mostramos componente externo) */}
+      {tabIndex === 2 ? <GestionAsistencia /> : null}
+    </Card>
+  );
+};
+
+/************************************************
+ * COMPONENTE PRINCIPAL CalendarioHorarios
+ ************************************************/
+const CalendarioHorarios = () => {
+  const [cursoSeleccionado, setCursoSeleccionado] = useState(1);
+  const [diaSeleccionado, setDiaSeleccionado] = useState(null);
+
+  // Estados para almacenar los datos REALES desde Backend
+  const [colegios, setColegios] = useState([]);
+  const [cursos, setCursos] = useState([]);
+  const [selectedColegio, setSelectedColegio] = useState('');
+  const [selectedCurso, setSelectedCurso] = useState('');
+  const [eventos, setEventos] = useState([]); // A futuro lo usaremos para cargar eventos reales
+
+  // Cargar colegios al montar
+  useEffect(() => {
+    fetchColegios();
+  }, []);
+
+  // Obtener Colegios desde Backend
+  const fetchColegios = async () => {
+    try {
+      // GET a: http://localhost:5000/api/calendariohorarios/colegios
+      const response = await axios.get(
+        'http://localhost:5000/api/calendariohorarios/colegios'
+      );
+      setColegios(response.data);
+    } catch (error) {
+      console.error('Error al obtener los colegios:', error);
+    }
+  };
+
+  // Obtener Cursos (según colegio seleccionado)
+  const fetchCursos = async colegioId => {
+    if (!colegioId) {
+      setCursos([]);
+      return;
+    }
+    try {
+      // GET a: http://localhost:5000/api/calendariohorarios/cursos/:colegioId
+      const response = await axios.get(
+        `http://localhost:5000/api/calendariohorarios/cursos/${colegioId}`
+      );
+      setCursos(response.data);
+    } catch (error) {
+      console.error('Error al obtener los cursos:', error);
+    }
+  };
+
+  // Manejar cambio de Colegio
+  const manejarCambioColegio = e => {
+    const colegioId = e.target.value;
+    setSelectedColegio(colegioId);
+    setSelectedCurso('');
+    setEventos([]);
+    fetchCursos(colegioId);
+  };
+
+  // Manejar cambio de Curso (cuando lo selecciones desde el Select)
+  const manejarCambioCurso = e => {
+    const cursoId = e.target.value;
+    setSelectedCurso(cursoId);
+    // Aquí puedes llamar a fetchEventos(cursoId) para traer los eventos reales.
+    // De momento, no lo hacemos para no mezclar con la data de ejemplo.
+  };
+
+  // EJEMPLO: si quisiéramos traer eventos reales del backend
+  /*
+  const fetchEventos = async (cursoId) => {
+    if (!cursoId) return;
+    try {
+      const response = await axios.get(`http://localhost:5000/api/horarios/${cursoId}`);
+      // Transforma los datos para tu calendario...
+      const eventosTransformados = response.data.map(evento => ({
+        start: new Date(`2025-03-03T${evento.horaInicio}`),
+        end: new Date(`2025-03-03T${evento.horaFin}`),
+        title: `${evento.horaInicio} - ${evento.horaFin} | ${evento.asignatura} (${evento.tipo})`
+      }));
+      setEventos(eventosTransformados);
+    } catch (error) {
+      console.error('Error al obtener eventos del curso:', error);
+    }
+  };
+  */
+
+  return (
+    <div style={{ padding: '20px', textAlign: 'center' }}>
+      <h2>Gestión de Horarios</h2>
+
+      {/* NUEVO: Selección de COLEGIO desde backend */}
+      <FormControl variant="outlined" style={{ minWidth: 250, marginBottom: '20px', marginRight: '20px' }}>
+        <InputLabel>Colegio</InputLabel>
+        <Select value={selectedColegio} onChange={manejarCambioColegio} label="Colegio">
+          <MenuItem value="">Seleccione un Colegio</MenuItem>
+          {colegios.map(colegio => (
+            <MenuItem key={colegio.OrganizationId} value={colegio.OrganizationId}>
+              {colegio.Name}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
+      {/* NUEVO: Selección de CURSOS según el colegio escogido */}
+      <FormControl variant="outlined" style={{ minWidth: 250, marginBottom: '20px' }}>
+        <InputLabel>Curso</InputLabel>
+        <Select value={selectedCurso} onChange={manejarCambioCurso} label="Curso">
+          <MenuItem value="">Seleccione un Curso</MenuItem>
+          {cursos.map(curso => (
+            <MenuItem key={curso.CursoOrganizationId} value={curso.CursoOrganizationId}>
+              {curso.Curso}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
+      {/* Este SELECT era tu ejemplo de cursosEjemplo. Lo puedes comentar/retirar si ya no lo necesitas:
+         <FormControl variant="outlined" style={{ minWidth: 250, marginBottom: '20px' }}>
+           <InputLabel>Seleccionar Curso</InputLabel>
+           <Select
+             value={cursoSeleccionado}
+             onChange={(event) => setCursoSeleccionado(event.target.value)}
+             label="Seleccionar Curso"
+           >
+             {cursosEjemplo.map((curso) => (
+               <MenuItem key={curso.id} value={curso.id}>
+                 {curso.nombre}
+               </MenuItem>
+             ))}
+           </Select>
+         </FormControl>
+      */}
+
+      {/* Calendario (usando datos de ejemplo "eventosEjemplo" y "cursoSeleccionado") */}
+      {!diaSeleccionado ? (
+        <Calendar
+          localizer={localizer}
+          events={eventosEjemplo[cursoSeleccionado] || []}
+          startAccessor="start"
+          endAccessor="end"
+          style={{ height: 500 }}
+          onSelectEvent={event => setDiaSeleccionado(moment(event.start).format('YYYY-MM-DD'))}
+        />
+      ) : (
+        <>
+          <Button variant="contained" color="secondary" onClick={() => setDiaSeleccionado(null)}>
+            Volver a Vista Mensual
+          </Button>
+
+          {/* Aquí se muestran los bloques (ejemplo) del día seleccionado */}
+          {horariosEjemplo[diaSeleccionado]?.map((horario, index) => (
+            <BloqueHorario
+              key={index}
+              horario={horario}
+              selectedColegio={selectedColegio}
+              manejarCambioColegio={manejarCambioColegio}
+              colegios={colegios}
+            />
+          ))}
+        </>
+      )}
+    </div>
+  );
+};
+
+export default CalendarioHorarios;

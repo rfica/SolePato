@@ -1,0 +1,202 @@
+import React from 'react';
+import RoleService from '../services/RoleService';
+import MenuManager from './manager/MenuManager';
+
+/*
+import { makeStyles } from '@material-ui/core/styles';
+import Drawer from '@material-ui/core/Drawer';
+import List from '@material-ui/core/List';
+import ListItem from '@material-ui/core/ListItem';
+import ListItemIcon from '@material-ui/core/ListItemIcon';
+import ListItemText from '@material-ui/core/ListItemText';
+import Collapse from '@material-ui/core/Collapse';
+import InboxIcon from '@material-ui/icons/MoveToInbox';
+import MailIcon from '@material-ui/icons/Mail';
+import ExpandLess from '@material-ui/icons/ExpandLess';
+import ExpandMore from '@material-ui/icons/ExpandMore';
+
+*/
+
+// DESPUÉS
+import { makeStyles } from '@mui/styles';
+import Drawer from '@mui/material/Drawer';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Collapse from '@mui/material/Collapse';
+import InboxIcon from '@mui/icons-material/MoveToInbox';
+import MailIcon from '@mui/icons-material/Mail';
+import ExpandLess from '@mui/icons-material/ExpandLess';
+import ExpandMore from '@mui/icons-material/ExpandMore';
+
+
+
+
+import { Link } from 'react-router-dom';
+import logo from '../images/logo.png'; // Correct path to the logo
+
+const useStyles = makeStyles((theme) => ({
+  root: {
+    display: 'flex',
+  },
+  drawer: {
+    width: 240,
+    flexShrink: 0,
+  },
+  drawerPaper: {
+    width: 240,
+    backgroundColor: '#333',
+    color: '#fff',
+  },
+  logo: {
+    width: '80%',
+    margin: '10px auto',
+  },
+  nested: {
+    paddingLeft: theme.spacing(4),
+  },
+  listItem: {
+    '&:hover': {
+      backgroundColor: '#ff9800',
+    },
+  },
+  listItemText: {
+    color: '#fff',
+  },
+}));
+
+const Sidebar = () => {
+  const classes = useStyles();
+  const [open, setOpen] = React.useState({});
+
+  const handleClick = (item) => {
+    setOpen({ ...open, [item]: !open[item] });
+  };
+
+  const menuItems = [
+    {
+      title: 'Matricula',
+      items: [
+      //  { text: 'Matricula alumno', link: '/add-person' },
+        { text: 'Matrícula Alumno Ingreso', link: '/matricula-ingreso' },
+        { text: 'Informe Matricula', link: '#' },
+        { text: 'Cursos año actual', link: '#' },
+        { text: 'Certificados', link: '#' },
+      ],
+    },
+    {
+      title: 'Asistencia',
+      items: [
+        { text: 'Informes (por cursos -por Alumnos)', link: '#' },
+        { text: 'Asistencia apoderados', link: '#' },
+        { text: 'Informe Critico', link: '#' },
+        { text: 'Informe Anual de Asistencia', link: '#' },
+      ],
+    },
+    {
+      title: 'Notas',
+      items: [
+        { text: 'Ingreso de Notas', link: '/notas' },
+        { text: 'Importar Notas', link: '#' },
+        { text: 'Expotar Notas', link: '#' },
+        { text: 'Imprimir', link: '#' },
+        { text: 'Informe Critico', link: '#' },
+        { text: 'Concentracion de Notas', link: '#' },
+        { text: 'Informes (por curso-por Alumnos)', link: '#' },
+        { text: 'Certificado anual de estudios', link: '#' },
+        { text: 'Actas calificaciones Finales', link: '#' },
+      ],
+    },
+    {
+      title: 'Convivencia',
+      items: [
+        { text: 'Manual de Convivencia', link: '#' },
+        { text: 'Registro de observaciones', link: '#' },
+        { text: 'Informe de observaciones', link: '#' },
+        { text: 'Bitácora Alumnos', link: '#' },
+        { text: 'Alerta temprana', link: '#' },
+        { text: 'Documentos', link: '#' },
+      ],
+    },
+    {
+      title: 'Libro Digital',
+      items: [
+        { text: 'Información del Libro', link: '#' },        
+        { text: 'Datos del Colegio, curso, profesor jefe, año y asignaturas', link: '/datos-colegio' },  
+        { text: 'Estudiantes del curso', link: '#' },
+        { text: 'Datos familiares', link: '#' },
+        { text: 'Asistencia', link: '#' },
+        { text: 'Notas', link: '#' },
+        { text: 'Anotaciones', link: '#' },
+      ],
+    },
+    {
+      title: 'PIE',
+      items: [
+        { text: 'Bitácora de estudiante', link: '#' },
+        { text: 'Registro de resultados', link: '#' },
+        { text: 'Histórico de Atenciones', link: '#' },
+        { text: 'Formulario e Informes', link: '#' },
+      ],
+    },
+
+//Menu que solo despues debe aparecer para un administrador
+    {
+      title: 'Colegio',
+      items: [
+        { text: 'Crear Colegio-Jerarquía', link: '/crear-colegio' }, // Nueva opción de menú
+      ],
+    },
+
+
+
+  ];
+
+  return (
+    <Drawer
+      className={classes.drawer}
+      variant="permanent"
+      classes={{
+        paper: classes.drawerPaper,
+      }}
+    >
+      <img src={logo} alt="Logo" className={classes.logo} />
+      <List>
+        {menuItems.map((menu, index) => (
+          <div key={index}>
+            <ListItem button onClick={() => handleClick(menu.title)} className={classes.listItem}>
+              <ListItemIcon className={classes.listItemText}>
+                {index % 2 === 0 ? <InboxIcon /> : <MailIcon />}
+              </ListItemIcon>
+              <ListItemText primary={menu.title} />
+              {open[menu.title] ? <ExpandLess /> : <ExpandMore />}
+            </ListItem>
+            <Collapse in={open[menu.title]} timeout="auto" unmountOnExit>
+              <List component="div" disablePadding>
+                {menu.items.map((item, idx) => (
+                  <ListItem
+                    button
+                    key={idx}
+                    className={`${classes.nested} ${classes.listItem}`}
+                    component={Link}
+                    to={item.link}
+                  >
+                    <ListItemIcon className={classes.listItemText}>
+                      <MailIcon />
+                    </ListItemIcon>
+                    <ListItemText primary={item.text} />
+                  </ListItem>
+                ))}
+              </List>
+            </Collapse>
+          </div>
+        ))}
+        {/* Menú exclusivo para Manager */}
+        {RoleService.getUsuario()?.RoleId === 13 && <MenuManager />}
+      </List>
+    </Drawer>
+  );
+};
+
+export default Sidebar;

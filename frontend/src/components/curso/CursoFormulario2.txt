@@ -1,0 +1,81 @@
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+import '../../styles/estilosgenerales.css';
+
+function CursoFormulario({ curso, setCurso, profesores, setCursos, colegioSeleccionado, cursoSeleccionado }) {
+  const [grados, setGrados] = useState([]);
+  const backendURL = 'http://localhost:5000/api/cursos';
+
+  useEffect(() => {
+    const fetchGrados = async () => {
+      try {
+        const response = await axios.get(`${backendURL}/grados/${colegioSeleccionado}`);
+        setGrados(response.data);
+      } catch (error) {
+        console.error('Error al cargar grados:', error);
+      }
+    };
+
+    if (colegioSeleccionado) {
+      fetchGrados();
+    }
+  }, [colegioSeleccionado]);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    try {
+      if (cursoSeleccionado) {
+        await axios.put(`${backendURL}/actualizar/${cursoSeleccionado.GradoId || cursoSeleccionado.LetraId}`, curso);
+      } else {
+        await axios.post(`${backendURL}/crear-curso`, { ...curso, colegioId: colegioSeleccionado });
+      }
+      const response = await axios.get(`${backendURL}/${colegioSeleccionado}/cursos`);
+      setCursos(response.data);
+    } catch (error) {
+      console.error('Error al guardar curso:', error);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="form-registrar-profesor">
+      <div className="form-row">
+        <div className="form-group">
+          <label>Grado:</label>
+          <select
+            name="grado"
+            value={curso.grado}
+            onChange={(e) => setCurso({ ...curso, grado: e.target.value })}
+            required
+          >
+            <option value="">Seleccione Grado</option>
+            {grados.map((grado) => (
+              <option key={grado.RefOrganizationTypeId} value={grado.RefOrganizationTypeId}>
+                {grado.Name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="form-group">
+          <label>Profesor Jefe:</label>
+          <select
+            name="profesorJefe"
+            value={curso.profesorJefe}
+            onChange={(e) => setCurso({ ...curso, profesorJefe: e.target.value })}
+            required
+          >
+            <option value="">Seleccione Profesor Jefe</option>
+            {profesores.map((profesor) => (
+              <option key={profesor.PersonId} value={profesor.PersonId}>
+                {profesor.Nombre}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <button type="submit" className="btn btn-primary">Guardar</button>
+    </form>
+  );
+}
+
+export default CursoFormulario;

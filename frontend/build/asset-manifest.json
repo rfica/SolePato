@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/static/css/main.94f74fa2.css",
+    "main.js": "/static/js/main.bf47f414.js",
+    "static/media/alumno.png": "/static/media/alumno.dd0977e8f049906b4d01.png",
+    "static/media/logo.png": "/static/media/logo.0af4b38d84d047b306d0.png",
+    "index.html": "/index.html",
+    "main.94f74fa2.css.map": "/static/css/main.94f74fa2.css.map",
+    "main.bf47f414.js.map": "/static/js/main.bf47f414.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.94f74fa2.css",
+    "static/js/main.bf47f414.js"
+  ]
+}

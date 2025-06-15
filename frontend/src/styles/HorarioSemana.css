@@ -1,0 +1,51 @@
+/* Archivo: HorarioSemana.css */
+.horario-semana {
+    display: flex;
+    justify-content: space-between;
+    margin: 105px 0;
+}
+
+.dia {
+    flex: 1;
+    margin: 0 10px;
+    border: 1px solid #ccc;
+    padding: 10px;
+    border-radius: 5px;
+    background-color: #f9f9f9;
+}
+
+.dia-horario {
+    margin-top: 10px;
+}
+
+.bloque-horario {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 10px;
+}
+
+.bloque-horario label {
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.bloque-horario input {
+    margin-bottom: 10px;
+    padding: 5px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+}
+
+.btn-agregar {
+    padding: 5px 10px;
+    background-color: #007bff;
+    color: #fff;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    margin-top: 10px;
+}
+
+.btn-agregar:hover {
+    background-color: #0056b3;
+}

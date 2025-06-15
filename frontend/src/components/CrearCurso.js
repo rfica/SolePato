@@ -1,0 +1,366 @@
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import RoleService from '../services/RoleService';
+
+//import { Button } from '@material-ui/core';
+//import AddIcon from '@material-ui/icons/Add';
+//import RemoveIcon from '@material-ui/icons/Remove';
+
+import { Button } from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
+import RemoveIcon from '@mui/icons-material/Remove';
+
+
+
+import '../styles/estilosgenerales.css';
+
+function CrearCurso() {
+  const [curso, setCurso] = useState({
+    colegio: '',
+    letrasSeleccionadas: [],
+    capacidadMaxima: '',
+    codigoEnsenanza: '',
+    profesorJefe: '',
+    grado: '',
+  });
+  const [colegios, setColegios] = useState([]);
+  const [cursos, setCursos] = useState([]);
+  const [profesores, setProfesores] = useState([]);
+  const [grados, setGrados] = useState([]);
+  const [codigosEnsenanza, setCodigosEnsenanza] = useState([]);
+  const [letrasAsignadas, setLetrasAsignadas] = useState([]); // Letras ya asignadas
+  const [modoEdicion, setModoEdicion] = useState(false);
+  const [mostrarFormulario, setMostrarFormulario] = useState(false);
+  const [cursoSeleccionado, setCursoSeleccionado] = useState(null);
+  const [colegioSeleccionado, setColegioSeleccionado] = useState(null);
+  const [colegioDisabled, setColegioDisabled] = useState(false);
+  const backendURL = 'http://localhost:5000/api/cursos';
+
+  useEffect(() => {
+    const fetchInitialData = async () => {
+      try {
+        const responseColegios = await axios.get(`${backendURL}/colegios`);
+        const responseCodigosEnsenanza = await axios.get('http://localhost:5000/api/codigos-ense');
+        setColegios(responseColegios.data);
+        setCodigosEnsenanza(responseCodigosEnsenanza.data);
+      } catch (error) {
+        console.error('Error al cargar datos iniciales:', error);
+      }
+    };
+    fetchInitialData();
+
+    // Lógica para seleccionar colegio automáticamente SOLO para roles 11 o 13
+    const usuario = RoleService.getUsuario();
+    if (usuario && (usuario.RoleId === 11 || usuario.RoleId === 13)) {
+      setCurso((prev) => ({ ...prev, colegio: usuario.SchoolId }));
+      setColegioSeleccionado(usuario.SchoolId);
+      setColegioDisabled(true);
+      cargarDatosColegio(usuario.SchoolId);
+    } else {
+      setColegioDisabled(false);
+    }
+  }, []);
+
+  const cargarDatosColegio = async (colegioId) => {
+    if (!colegioId) return;
+
+    try {
+      const responseProfesores = await axios.get(`http://localhost:5000/api/cursos/profesores/${colegioId}`);
+      const responseCursos = await axios.get(`http://localhost:5000/api/cursos/${colegioId}/cursos`);
+      setProfesores(responseProfesores.data);
+      setCursos(responseCursos.data);
+    } catch (error) {
+      console.error('Error al cargar cursos o profesores:', error);
+    }
+  };
+
+  const cargarLetrasAsignadas = async (gradoId) => {
+    try {
+      console.log(`Cargando letras asignadas para GradoId: ${gradoId}, ColegioId: ${curso.colegio}`);
+      const response = await axios.get(`http://localhost:5000/api/cursos/letras/${gradoId}/${curso.colegio}`);
+      console.log('Respuesta de letras asignadas:', response.data);
+      const letras = response.data.map((letra) => letra.LetraName);
+      setLetrasAsignadas(letras); // Guardar letras asignadas para deshabilitarlas
+    } catch (error) {
+      console.error('Error al cargar letras asignadas:', error);
+    }
+  };
+
+  const handleColegioChange = async (event) => {
+    const selectedColegio = event.target.value;
+    setCurso({ ...curso, colegio: selectedColegio });
+    setColegioSeleccionado(selectedColegio);
+    await cargarDatosColegio(selectedColegio);
+  };
+
+  const handleCodigoEnsenanzaChange = async (event) => {
+    const selectedCodigoEnse = event.target.value;
+    setCurso({ ...curso, codigoEnsenanza: selectedCodigoEnse });
+
+    try {
+      const responseGrados = await axios.get(`http://localhost:5000/api/cursos/grados/${selectedCodigoEnse}`);
+      setGrados(responseGrados.data);
+    } catch (error) {
+      console.error('Error al cargar grados:', error);
+    }
+  };
+
+  const handleGradoChange = async (event) => {
+    const selectedGrado = event.target.value;
+    setCurso({ ...curso, grado: selectedGrado });
+    await cargarLetrasAsignadas(selectedGrado);
+  };
+
+  const handleMostrarFormulario = () => {
+    setMostrarFormulario(!mostrarFormulario);
+    setModoEdicion(false);
+    setCurso({
+      colegio: curso.colegio,
+      letrasSeleccionadas: [],
+      capacidadMaxima: '',
+      codigoEnsenanza: '',
+      profesorJefe: '',
+      grado: ''
+    });
+  };
+
+  const handleEditarCurso = (cursoId) => {
+    const cursoSeleccionado = cursos.find((curso) => curso.LetraId === cursoId || curso.GradoId === cursoId);
+    if (cursoSeleccionado) {
+      setCurso({
+        colegio: cursoSeleccionado.ColegioId,
+        letrasSeleccionadas: cursoSeleccionado.LetraName ? [cursoSeleccionado.LetraName] : [],
+        capacidadMaxima: cursoSeleccionado.CapacidadMaxima,
+        codigoEnsenanza: cursoSeleccionado.CodigoEnseñanzaID,
+        profesorJefe: cursoSeleccionado.ProfesorJefeId,
+        grado: cursoSeleccionado.GradoId
+      });
+      setCursoSeleccionado(cursoSeleccionado);
+      setModoEdicion(true);
+      setMostrarFormulario(true);
+      cargarLetrasAsignadas(cursoSeleccionado.GradoId);
+    }
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    try {
+      const letrasNoAsignadas = curso.letrasSeleccionadas.filter((letra) => !letrasAsignadas.includes(letra));
+
+      if (modoEdicion) {
+        await axios.put(`${backendURL}/actualizar/${cursoSeleccionado.LetraId || cursoSeleccionado.GradoId}`, {
+          cursoId: cursoSeleccionado.LetraId || cursoSeleccionado.GradoId,
+          capacidadMaxima: curso.capacidadMaxima,
+          profesorJefe: curso.profesorJefe,
+        });
+      } else {
+        await axios.post(`${backendURL}/crear-curso`, {
+          nombreCurso: curso.codigoEnsenanza,
+          nivel: curso.grado,
+          letrasSeleccionadas: letrasNoAsignadas, // Solo letras no asignadas
+          capacidadMaxima: curso.capacidadMaxima,
+          profesorJefe: curso.profesorJefe,
+          colegioId: curso.colegio,
+          codigoEnsenanzaId: curso.codigoEnsenanza,
+          gradoId: curso.grado,
+        });
+      }
+
+      await cargarDatosColegio(colegioSeleccionado);
+      setMostrarFormulario(false);
+      setModoEdicion(false);
+      setCurso({
+        colegio: colegioSeleccionado,
+        letrasSeleccionadas: [],
+        capacidadMaxima: '',
+        codigoEnsenanza: '',
+        profesorJefe: '',
+        grado: ''
+      });
+    } catch (error) {
+      console.error('Error al guardar el curso:', error.response ? error.response.data : error.message);
+    }
+  };
+
+  return (
+    <div>
+      <h2 className="form-titulo">Crear Curso</h2>
+
+      <div className="form-row aligned-elements">
+        <div className="form-group">
+          <label>Colegio:</label>
+          <select
+            name="colegio"
+            value={curso.colegio}
+            onChange={handleColegioChange}
+            required
+            disabled={colegioDisabled}
+          >
+            <option value="">Seleccione Colegio</option>
+            {colegios.map((colegio) => (
+              <option key={colegio.OrganizationId} value={colegio.OrganizationId}>
+                {colegio.Name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="form-group">
+          <Button
+            variant="contained"
+            color={mostrarFormulario ? 'secondary' : 'primary'}
+            startIcon={mostrarFormulario ? <RemoveIcon /> : <AddIcon />}
+            onClick={handleMostrarFormulario}
+          >
+            {mostrarFormulario ? '- Volver a Modificar' : '+ Crear Curso'}
+          </Button>
+        </div>
+      </div>
+
+      {mostrarFormulario && (
+        <form onSubmit={handleSubmit} className="form-registrar-profesor">
+          <div className="form-row">
+            <div className="form-group">
+              <label>Letras del Curso:</label>
+              <div className="horizontal-container">
+                {Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map((letra) => (
+                  <div key={letra}>
+                    <input
+                      type="checkbox"
+                      value={letra}
+                      checked={curso.letrasSeleccionadas.includes(letra)}
+                      onChange={() =>
+                        setCurso((prevState) => ({
+                          ...prevState,
+                          letrasSeleccionadas: prevState.letrasSeleccionadas.includes(letra)
+                            ? prevState.letrasSeleccionadas.filter((l) => l !== letra)
+                            : [...prevState.letrasSeleccionadas, letra],
+                        }))
+                      }
+                      disabled={letrasAsignadas.includes(letra)} // Deshabilitar si ya está asignada
+                    />
+                    <label>{letra}</label>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="form-group">
+              <label>Capacidad Máxima de Alumnos:</label>
+              <input
+                type="number"
+                name="capacidadMaxima"
+                value={curso.capacidadMaxima}
+                onChange={(e) => setCurso({ ...curso, capacidadMaxima: e.target.value })}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label>Código de Enseñanza:</label>
+              <select
+                name="codigoEnsenanza"
+                value={curso.codigoEnsenanza}
+                onChange={handleCodigoEnsenanzaChange}
+                required
+                disabled={modoEdicion}
+              >
+                <option value="">Seleccione Código de Enseñanza</option>
+                {codigosEnsenanza.map((codigo) => (
+                  <option key={codigo.RefOrganizationTypeId} value={codigo.RefOrganizationTypeId}>
+                    {codigo.Name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Grado:</label>
+              <select
+                name="grado"
+                value={curso.grado}
+                onChange={handleGradoChange}
+                required
+                disabled={modoEdicion}
+              >
+                <option value="">Seleccione Grado</option>
+                {grados.map((grado) => (
+                  <option key={grado.RefOrganizationTypeId} value={grado.RefOrganizationTypeId}>
+                    {grado.Name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Profesor Jefe:</label>
+              <select
+                name="profesorJefe"
+                value={curso.profesorJefe}
+                onChange={(e) => setCurso({ ...curso, profesorJefe: e.target.value })}
+                required
+              >
+                <option value="">Seleccione Profesor Jefe</option>
+                {profesores.map((profesor) => (
+                  <option key={profesor.PersonId} value={profesor.PersonId}>
+                    {profesor.Nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <Button type="submit" variant="contained" color="primary">
+            {modoEdicion ? 'Guardar Cambios' : 'Crear Curso'}
+          </Button>
+        </form>
+      )}
+
+      <div className="curso-listado">
+        <h3>Cursos del Colegio</h3>
+        <table className="curso-tabla">
+          <thead>
+            <tr>
+              <th>Código de Enseñanza</th>
+              <th>Grado</th>
+              <th>Letra</th>
+              <th>Capacidad Máxima</th>
+              <th>Profesor Jefe</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cursos.length > 0 ? (
+              cursos.map((cursoItem) => (
+                <tr key={cursoItem.LetraId || cursoItem.GradoId}>
+                  <td>{cursoItem.CodigoEnseñanzaName}</td>
+                  <td>{cursoItem.GradoName}</td>
+                  <td>{cursoItem.LetraName || '-'}</td>
+                  <td>{cursoItem.CapacidadMaxima}</td>
+                  <td>{profesores.find((prof) => prof.PersonId === cursoItem.ProfesorJefeId)?.Nombre || 'No Asignado'}</td>
+                  <td>
+                    <Button
+                      onClick={() => handleEditarCurso(cursoItem.LetraId || cursoItem.GradoId)}
+                      variant="contained"
+                      color="secondary"
+                      className="btn-modificar"
+                    >
+                      MODIFICAR
+                    </Button>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan="6">No hay cursos disponibles para este colegio</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export default CrearCurso;

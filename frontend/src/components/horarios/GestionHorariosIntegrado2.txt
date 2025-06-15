@@ -1,0 +1,486 @@
+// ======================================================
+//  Archivo: GestionHorariosIntegrado.js (refinado CSS)
+//  Objetivo: Unificar la vista y lógica de horarios
+//            con 5 columnas horizontales y panel a la derecha
+//            que no bloquee el contenido.
+// ======================================================
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+import "../../styles/horarios.css"; // Ajusta la ruta a tu carpeta de estilos
+
+const DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"];
+
+const GestionHorariosIntegrado = () => {
+  const [colegios, setColegios] = useState([]);
+  const [codigoEnsenanza, setCodigoEnsenanza] = useState([]);
+  const [cursos, setCursos] = useState([]);
+  const [selectedColegio, setSelectedColegio] = useState("");
+  const [selectedCodigoEnsenanza, setSelectedCodigoEnsenanza] = useState("");
+  const [selectedCurso, setSelectedCurso] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const [calendarios, setCalendarios] = useState([]);
+  const [calendarioSeleccionado, setCalendarioSeleccionado] = useState("");
+
+  const [fechaInicio, setFechaInicio] = useState("");
+  const [fechaFin, setFechaFin] = useState("");
+  const [deHoyEnAdelante, setDeHoyEnAdelante] = useState(false);
+
+  const [horarios, setHorarios] = useState({
+    Lunes: [],
+    Martes: [],
+    Miércoles: [],
+    Jueves: [],
+    Viernes: [],
+  });
+
+  const [opcionesBloques, setOpcionesBloques] = useState([]);
+  const [asignaturas, setAsignaturas] = useState([]);
+  const [profesoresPorAsignatura, setProfesoresPorAsignatura] = useState({});
+
+  // Cargar colegios y bloques al inicio
+  useEffect(() => {
+    const fetchColegios = async () => {
+      try {
+        const res = await axios.get("http://localhost:5000/api/obtener-colegios");
+        setColegios(res.data || []);
+      } catch (error) {
+        console.error("Error al obtener los colegios:", error);
+        setErrorMessage("Error al cargar los colegios. Intente nuevamente.");
+      }
+    };
+
+    const fetchBloques = async () => {
+      try {
+        const res = await axios.get("http://localhost:5000/api/bloques");
+        setOpcionesBloques(res.data || []);
+      } catch (error) {
+        console.error("Error al cargar los bloques:", error);
+      }
+    };
+
+    fetchColegios();
+    fetchBloques();
+  }, []);
+
+  // Al cambiar de Colegio => cargar Códigos de Enseñanza
+  const manejarCambioColegio = async (e) => {
+    const colegioId = e.target.value;
+    setSelectedColegio(colegioId);
+    setSelectedCodigoEnsenanza("");
+    setSelectedCurso("");
+    setHorarios({ Lunes: [], Martes: [], Miércoles: [], Jueves: [], Viernes: [] });
+
+    if (!colegioId) {
+      setCodigoEnsenanza([]);
+      setCursos([]);
+      return;
+    }
+
+    try {
+      const res = await axios.get(`http://localhost:5000/api/horarios/codense/${colegioId}`);
+      setCodigoEnsenanza(res.data || []);
+    } catch (error) {
+      console.error("Error al obtener códigos de enseñanza:", error);
+      setErrorMessage("Error al cargar los códigos de enseñanza.");
+    }
+  };
+
+  // Al cambiar de Código Enseñanza => cargar Cursos
+  const manejarCambioCodigoEnsenanza = async (e) => {
+    const codEnsId = e.target.value;
+    setSelectedCodigoEnsenanza(codEnsId);
+    setSelectedCurso("");
+    setHorarios({ Lunes: [], Martes: [], Miércoles: [], Jueves: [], Viernes: [] });
+
+    if (!codEnsId) {
+      setCursos([]);
+      return;
+    }
+
+    try {
+      const res = await axios.get(`http://localhost:5000/api/horarios/cursos/${codEnsId}`);
+      setCursos(res.data || []);
+    } catch (error) {
+      console.error("Error al obtener los cursos:", error);
+      setErrorMessage("Error al cargar los cursos.");
+    }
+  };
+
+  // Al seleccionar un Curso => cargar asignaturas y calendarios
+  useEffect(() => {
+    if (!selectedCurso) return;
+
+    const partes = selectedCurso.split("-");
+    const cursoId = partes.length > 1 ? partes[1].trim() : selectedCurso;
+
+    const fetchAsignaturas = async () => {
+      try {
+        const res = await axios.get(`http://localhost:5000/api/horarios/asignaturas/curso/${cursoId}`);
+        setAsignaturas(res.data || []);
+      } catch (error) {
+        console.error("Error al cargar asignaturas:", error);
+      }
+    };
+
+    const fetchCalendarios = async () => {
+      try {
+        const res = await axios.get(`http://localhost:5000/api/horarios/getanos/${cursoId}`);
+        setCalendarios(res.data || []);
+      } catch (error) {
+        console.error("Error al cargar calendarios:", error);
+      }
+    };
+
+    fetchAsignaturas();
+    fetchCalendarios();
+  }, [selectedCurso]);
+
+  const getCursoIdLimpio = () => {
+    if (!selectedCurso) return "";
+    const partes = selectedCurso.split("-");
+    return partes.length > 1 ? partes[1].trim() : selectedCurso;
+  };
+
+  // Replicar (cargar) horarios desde la BD
+  const cargarHorarios = async () => {
+    const cursoIdLimpio = getCursoIdLimpio();
+    if (!calendarioSeleccionado || !cursoIdLimpio) {
+      alert("Seleccione un calendario y un curso para cargar los horarios.");
+      return;
+    }
+
+    try {
+      const response = await axios.get(
+        `http://localhost:5000/api/horarios/detalle/${cursoIdLimpio}/${calendarioSeleccionado}`
+      );
+      const data = response.data || [];
+      if (!data.length) {
+        alert("No hay horarios para este curso.");
+        return;
+      }
+
+      // Estructuramos en { Lunes: [...], Martes: [...], etc. }
+      const nuevosHorarios = { Lunes: [], Martes: [], Miércoles: [], Jueves: [], Viernes: [] };
+      data.forEach((hor) => {
+        if (!nuevosHorarios[hor.dias]) {
+          nuevosHorarios[hor.dias] = [];
+        }
+        nuevosHorarios[hor.dias].push({
+          horaInicio: hor.horaInicio || hor.classBeginningTime,
+          horaTermino: hor.horaFin || hor.classEndingTime,
+          asignatura: hor.asignaturaId || "",
+          profesor: hor.profesorId || "",
+          tipo: hor.tipo === "Recreo" ? "Recreo" : "Clase",
+        });
+      });
+
+      setHorarios(nuevosHorarios);
+      alert("Horarios cargados correctamente.");
+    } catch (error) {
+      console.error("Error al cargar horarios:", error);
+      alert("Ocurrió un error al cargar los horarios.");
+    }
+  };
+
+  // Guardar (enviar) horarios al backend
+  const manejarGuardarHorarios = async () => {
+    const cursoIdLimpio = getCursoIdLimpio();
+    if (!cursoIdLimpio) {
+      alert("El curso no ha sido seleccionado.");
+      return;
+    }
+    if (!deHoyEnAdelante && (!fechaInicio || !fechaFin)) {
+      alert("Seleccione un rango de fechas válido o active 'De hoy en adelante'.");
+      return;
+    }
+
+    const rango = deHoyEnAdelante
+      ? { beginDate: new Date().toISOString().split("T")[0], endDate: null }
+      : { beginDate: fechaInicio, endDate: fechaFin };
+
+    const payload = {
+      calendarData: {
+        organizationId: cursoIdLimpio,
+        calendarCode: `CAL-${cursoIdLimpio}`,
+        calendarDescription: "Calendario generado automáticamente",
+        calendarYear: new Date().getFullYear(),
+        sessions: [
+          {
+            beginDate: rango.beginDate,
+            endDate: rango.endDate || `${new Date().getFullYear()}-12-31`,
+            description: "Sesión automática para horarios",
+          },
+        ],
+      },
+      horarios: [],
+    };
+
+    Object.entries(horarios).forEach(([dia, bloques]) => {
+      bloques.forEach((bloque, idx) => {
+        payload.horarios.push({
+          classMeetingDays: dia,
+          classBeginningTime: bloque.horaInicio,
+          classEndingTime: bloque.horaTermino,
+          classPeriod: `Bloque ${idx + 1}`,
+          organizationId: +bloque.asignatura || null,
+          asignatura: cursoIdLimpio,
+          profesor: bloque.profesor || null,
+          tipoBloque: bloque.tipo || "Clase",
+        });
+      });
+    });
+
+    try {
+      await axios.post("http://localhost:5000/api/horarios/bulk", payload);
+      alert("Horarios guardados correctamente.");
+    } catch (error) {
+      console.error("Error al guardar horarios:", error);
+      alert("Ocurrió un error al guardar los horarios.");
+    }
+  };
+
+  // Agregar nuevo bloque a un día
+  const agregarNuevoBloque = (dia) => {
+    const ultimo = horarios[dia][horarios[dia].length - 1] || { horaTermino: "08:00" };
+    const nuevoBloque = {
+      tipo: "Clase",
+      horaInicio: ultimo.horaTermino,
+      horaTermino: "",
+      asignatura: "",
+      profesor: "",
+    };
+    setHorarios((prev) => ({
+      ...prev,
+      [dia]: [...prev[dia], nuevoBloque],
+    }));
+  };
+
+  // Actualizar un campo de un bloque (horaInicio, asignatura, etc.)
+  const handleChangeBloque = (dia, index, campo, valor) => {
+    setHorarios((prev) => {
+      const copiaDia = [...prev[dia]];
+      copiaDia[index] = { ...copiaDia[index], [campo]: valor };
+      return { ...prev, [dia]: copiaDia };
+    });
+  };
+
+  // Al cambiar asignatura => cargar profesores
+  const handleAsignaturaChange = async (dia, index, asignaturaId) => {
+    handleChangeBloque(dia, index, "asignatura", asignaturaId);
+    if (!selectedColegio || !asignaturaId) return;
+    try {
+      const res = await axios.get(
+        `http://localhost:5000/api/horarios/profesores/${selectedColegio}/asignatura/${asignaturaId}`
+      );
+      setProfesoresPorAsignatura((prev) => ({
+        ...prev,
+        [asignaturaId]: res.data,
+      }));
+    } catch (error) {
+      console.error("Error al obtener profesores:", error);
+    }
+  };
+
+  // Render:
+  return (
+    <div className="contenedor">
+      <h1 className="form-titulo">Gestión de Horarios</h1>
+      {errorMessage && <p className="error-message">{errorMessage}</p>}
+
+      {/* SELECCIÓN DE COLEGIO, COD. ENSEÑANZA, CURSO */}
+      <div className="form-registrar-profesor">
+        <div className="campo">
+          <label>Colegio:</label>
+          <select value={selectedColegio} onChange={manejarCambioColegio}>
+            <option value="">Seleccione un colegio</option>
+            {colegios.map((col) => (
+              <option key={col.OrganizationId} value={col.OrganizationId}>
+                {col.Name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="campo">
+          <label>Código Enseñanza:</label>
+          <select
+            value={selectedCodigoEnsenanza}
+            onChange={manejarCambioCodigoEnsenanza}
+            disabled={!selectedColegio}
+          >
+            <option value="">Seleccione un código</option>
+            {codigoEnsenanza.map((ce) => (
+              <option key={ce.OrganizationId} value={ce.OrganizationId}>
+                {ce.Name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="campo">
+          <label>Curso:</label>
+          <select
+            value={selectedCurso}
+            onChange={(e) => setSelectedCurso(e.target.value)}
+            disabled={!selectedCodigoEnsenanza}
+          >
+            <option value="">Seleccione un curso</option>
+            {cursos.map((c) => (
+              <option key={c.Valor} value={c.Valor}>
+                {c.Curso}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* PANEL DE ACCIONES (Replicar / Guardar) */}
+      <div className="acciones-horarios">
+        <div className="replicar-horarios">
+          <h3>Replicar Horarios</h3>
+          <label>Calendario:</label>
+          <select
+            value={calendarioSeleccionado}
+            onChange={(e) => setCalendarioSeleccionado(e.target.value)}
+          >
+            <option value="">Seleccione un calendario</option>
+            {calendarios.map((cal, idx) => (
+              <option key={idx} value={cal.OrganizationCalendarSessionId}>
+                {cal.CalendarYear} - {cal.BeginDate?.split("T")[0]} al{" "}
+                {cal.EndDate?.split("T")[0]}
+              </option>
+            ))}
+          </select>
+          <button onClick={cargarHorarios}>Cargar Horarios</button>
+        </div>
+
+        <div className="guardar-horarios">
+          <h3>Guardar Horarios</h3>
+          <div>
+            <label>
+              <input
+                type="checkbox"
+                checked={deHoyEnAdelante}
+                onChange={(e) => setDeHoyEnAdelante(e.target.checked)}
+              />
+              De hoy en adelante
+            </label>
+          </div>
+          {!deHoyEnAdelante && (
+            <>
+              <label>Fecha Inicio:</label>
+              <input
+                type="date"
+                value={fechaInicio}
+                onChange={(e) => setFechaInicio(e.target.value)}
+              />
+              <label>Fecha Fin:</label>
+              <input
+                type="date"
+                value={fechaFin}
+                onChange={(e) => setFechaFin(e.target.value)}
+              />
+            </>
+          )}
+          <button onClick={manejarGuardarHorarios}>Guardar Horarios</button>
+        </div>
+      </div>
+
+      {/* 5 COLUMNAS: Lunes, Martes, Miércoles, Jueves, Viernes */}
+      <div className="horario-semana">
+        {DIAS_SEMANA.map((dia) => (
+          <div className="dia" key={dia}>
+            <h2>{dia}</h2>
+            {horarios[dia].map((bloque, idx) => {
+              const profesores = profesoresPorAsignatura[bloque.asignatura] || [];
+              const extraClass = bloque.tipo === "Recreo" ? "recreo" : "clase";
+
+              return (
+                <div className={`bloque-container ${extraClass}`} key={idx}>
+                  <h3>Bloque {idx + 1}</h3>
+                  <div className="campo">
+                    <label>Tipo Bloque:</label>
+                    <select
+                      value={bloque.tipo}
+                      onChange={(e) => handleChangeBloque(dia, idx, "tipo", e.target.value)}
+                    >
+                      <option value="Clase">Clase</option>
+                      <option value="Recreo">Recreo</option>
+                    </select>
+                  </div>
+                  <div className="campo">
+                    <label>Hora de inicio:</label>
+                    <input
+                      type="time"
+                      value={bloque.horaInicio || ""}
+                      onChange={(e) =>
+                        handleChangeBloque(dia, idx, "horaInicio", e.target.value)
+                      }
+                    />
+                  </div>
+                  <div className="campo">
+                    <label>Hora de término:</label>
+                    <input
+                      type="time"
+                      value={bloque.horaTermino || ""}
+                      onChange={(e) =>
+                        handleChangeBloque(dia, idx, "horaTermino", e.target.value)
+                      }
+                    />
+                  </div>
+
+                  {bloque.tipo !== "Recreo" && (
+                    <>
+                      <div className="campo">
+                        <label>Asignatura:</label>
+                        <select
+                          value={bloque.asignatura || ""}
+                          onChange={(e) =>
+                            handleAsignaturaChange(dia, idx, e.target.value)
+                          }
+                        >
+                          <option value="">Seleccione asignatura</option>
+                          {asignaturas.map((asg) => (
+                            <option key={asg.AsignaturaId} value={asg.AsignaturaId}>
+                              {asg.AsignaturaName}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="campo">
+                        <label>Profesor:</label>
+                        <select
+                          value={bloque.profesor || ""}
+                          onChange={(e) =>
+                            handleChangeBloque(dia, idx, "profesor", e.target.value)
+                          }
+                        >
+                          <option value="">Seleccione profesor</option>
+                          {profesores.map((p) => (
+                            <option key={p.ProfesorId} value={p.ProfesorId}>
+                              {p.ProfesorNombre}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+
+            <button
+              className="btn-agregar-bloque"
+              onClick={() => agregarNuevoBloque(dia)}
+            >
+              Agregar nuevo bloque
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default GestionHorariosIntegrado;

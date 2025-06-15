@@ -1,0 +1,64 @@
+import React from 'react';
+import { BrowserRouter as Router, Route, Switch } from 'react-router-dom';
+import MatriculaForm from './pages/MatriculaForm';
+import MatriculaIngresoForm from './pages/MatriculaIngresoForm'; // Importa el componente de Matrícula Ingreso
+import { CssBaseline } from '@material-ui/core';
+import Navbar from './components/Navbar';
+import Sidebar from './components/Sidebar';
+import Header from './components/Header';
+import PersonForm from './components/PersonForm';
+import PersonPage from './pages/PersonPage';
+import DatosColegio from './pages/DatosColegio';
+import RegistrarProfesor from './pages/RegistrarProfesor'; // Importar la página de registro de profesores
+import CrearCurso from './components/CrearCurso';
+
+import CrearColegio from './components/CrearColegio';
+import Electivo from './components/electivo/Electivo';
+import Bloques from './components/bloques/Bloques';
+import Horarios from './components/horarios/Horarios';
+
+import AsignarAsignaturas from './components/AsignarAsignaturas';
+import CalendarioHorarios from './components/calendario/CalendarioHorarios';
+
+
+
+
+
+function App() {
+  return (
+    <Router>
+      <div style={{ display: 'flex' }}>
+        <CssBaseline />
+        <Sidebar />
+        <div style={{ flexGrow: 1 }}>
+          <Header />
+          <main style={{ padding: '24px', marginTop: '64px' }}>
+            {/* Mantenemos la barra de navegación */}
+            <Navbar />
+            <Switch>
+              <Route path='/matricula' component={MatriculaForm} /> {/* Ruta para Matricula */}
+              <Route path='/electivo' component={Electivo} /> {/* Ruta para Electivos */}
+
+               <Route path='/Bloques' component={Bloques} /> {/* Ruta para Bloques */}
+               <Route path='/Horarios' component={Horarios} /> {/* Ruta para Horarios */}
+
+              <Route path='/matricula-ingreso' component={MatriculaIngresoForm} /> {/* Nueva ruta para Matricula Ingreso */}
+              <Route path="/add-person" component={PersonForm} /> {/* Ruta para agregar personas */}
+              <Route path="/person" component={PersonPage} /> {/* Ruta para la página de personas */}
+              <Route path="/datos-colegio" component={DatosColegio} />            
+              <Route path="/crear-curso" component={CrearCurso} />
+              <Route path="/registrar-profesor" component={RegistrarProfesor} /> {/* Ruta para registrar profesores */}
+              <Route path="/crear-colegio" component={CrearColegio} />
+              <Route path="/asignar-asignaturas" component={AsignarAsignaturas} />
+              {/* Otras rutas adicionales si son necesarias */}
+               <Route path="/calendario" component={CalendarioHorarios } />
+
+            </Switch>
+          </main>
+        </div>
+      </div>
+    </Router>
+  );
+}
+
+export default App;

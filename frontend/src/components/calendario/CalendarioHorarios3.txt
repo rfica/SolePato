@@ -1,0 +1,126 @@
+import React, { useState } from 'react';
+import { Calendar, momentLocalizer } from 'react-big-calendar';
+import moment from 'moment';
+import 'moment/locale/es';
+import 'react-big-calendar/lib/css/react-big-calendar.css';
+import { Card, CardContent, Typography, IconButton, Grid, Button, MenuItem, FormControl, Select, InputLabel } from '@material-ui/core';
+import DeleteIcon from '@material-ui/icons/Delete';
+import CheckCircleIcon from '@material-ui/icons/CheckCircleOutline';
+import RadioButtonUncheckedIcon from '@material-ui/icons/RadioButtonUnchecked';
+
+moment.locale('es');
+const localizer = momentLocalizer(moment);
+
+const cursosEjemplo = [
+    { id: 1, nombre: '4° Básico B' },
+    { id: 2, nombre: '5° Básico A' }
+];
+
+const eventosEjemplo = {
+    1: [
+        { start: new Date(2025, 2, 3, 8, 0), end: new Date(2025, 2, 3, 9, 30), title: '08:00 Bloque de 90 mins.' },
+        { start: new Date(2025, 2, 3, 9, 30), end: new Date(2025, 2, 3, 9, 45), title: '09:30 Recreo de 15 mins.' },
+        { start: new Date(2025, 2, 3, 9, 45), end: new Date(2025, 2, 3, 11, 15), title: '09:45 Bloque de 90 mins.' }
+    ],
+    2: [
+        { start: new Date(2025, 2, 4, 8, 0), end: new Date(2025, 2, 4, 8, 45), title: '08:00 Bloque de 45 mins.' },
+        { start: new Date(2025, 2, 4, 8, 45), end: new Date(2025, 2, 4, 9, 0), title: '08:45 Recreo de 15 mins.' },
+        { start: new Date(2025, 2, 4, 9, 0), end: new Date(2025, 2, 4, 10, 30), title: '09:00 Bloque de 90 mins.' }
+    ]
+};
+
+const horariosEjemplo = {
+    '2025-03-03': [
+        { start: '08:00', end: '09:30', bloque: 'Bloque 1', duracion: '90 Minutos', asignatura: 'Matemática', profesor: 'Walter Alejandro Castro', estado: { oa: true, leccionario: true, asistencia: true, firma: true } },
+        { start: '09:30', end: '09:45', bloque: 'Recreo', duracion: '15 Minutos', asignatura: 'Recreo', profesor: '', estado: { oa: false, leccionario: false, asistencia: false, firma: false } },
+        { start: '09:45', end: '11:15', bloque: 'Bloque 2', duracion: '90 Minutos', asignatura: 'Educación Física', profesor: 'Genesis Espinoza Ortiz', estado: { oa: true, leccionario: false, asistencia: false, firma: false } }
+    ]
+};
+
+const BloqueHorario = ({ horario }) => (
+    <Card style={{ marginBottom: '10px', background: horario.asignatura === 'Recreo' ? '#FDF6C3' : '#FFF' }}>
+        <CardContent>
+            <Grid container alignItems="center" spacing={2}>
+                <Grid item xs={10}>
+                    <Typography variant="h6">
+                        {horario.start} - {horario.end} | <strong>{horario.bloque}</strong> ({horario.duracion})
+                    </Typography>
+                    <Typography variant="body1">
+                        <strong>{horario.asignatura}</strong> {horario.profesor && `- ${horario.profesor}`}
+                    </Typography>
+                </Grid>
+                <Grid item xs={2}>
+                    <IconButton color="secondary">
+                        <DeleteIcon />
+                    </IconButton>
+                </Grid>
+            </Grid>
+            {horario.asignatura !== 'Recreo' && (
+                <Grid container spacing={1} style={{ marginTop: '10px' }}>
+                    {['oa', 'leccionario', 'asistencia', 'firma'].map((key) => (
+                        <Grid item key={key}>
+                            {horario.estado[key] ? (
+                                <CheckCircleIcon style={{ color: '#007BFF', fontSize: 32 }} />
+                            ) : (
+                                <RadioButtonUncheckedIcon style={{ color: '#CCC', fontSize: 32 }} />
+                            )}
+                            <Typography variant="caption" display="block" align="center">
+                                {key.charAt(0).toUpperCase() + key.slice(1)}
+                            </Typography>
+                        </Grid>
+                    ))}
+                </Grid>
+            )}
+        </CardContent>
+    </Card>
+);
+
+const CalendarioHorarios = () => {
+    const [cursoSeleccionado, setCursoSeleccionado] = useState(1);
+    const [diaSeleccionado, setDiaSeleccionado] = useState(null);
+
+    const handleCursoChange = (event) => {
+        setCursoSeleccionado(event.target.value);
+    };
+
+    const handleSelectEvent = (event) => {
+        setDiaSeleccionado(moment(event.start).format('YYYY-MM-DD'));
+    };
+
+    return (
+        <div style={{ padding: '20px', textAlign: 'center' }}>
+            <h2>Gestión de Horarios</h2>
+            <FormControl variant="outlined" style={{ minWidth: 250, marginBottom: '20px' }}>
+                <InputLabel>Seleccionar Curso</InputLabel>
+                <Select value={cursoSeleccionado} onChange={handleCursoChange}>
+                    {cursosEjemplo.map((curso) => (
+                        <MenuItem key={curso.id} value={curso.id}>{curso.nombre}</MenuItem>
+                    ))}
+                </Select>
+            </FormControl>
+            {!diaSeleccionado ? (
+                <div style={{ height: '500px', marginTop: '20px' }}>
+                    <Calendar
+                        localizer={localizer}
+                        events={eventosEjemplo[cursoSeleccionado] || []}
+                        startAccessor="start"
+                        endAccessor="end"
+                        style={{ height: 500 }}
+                        onSelectEvent={handleSelectEvent}
+                    />
+                </div>
+            ) : (
+                <>
+                    <Button variant="contained" color="secondary" onClick={() => setDiaSeleccionado(null)}>
+                        Volver a Vista Mensual
+                    </Button>
+                    {horariosEjemplo[diaSeleccionado]?.map((horario, index) => (
+                        <BloqueHorario key={index} horario={horario} />
+                    ))}
+                </>
+            )}
+        </div>
+    );
+};
+
+export default CalendarioHorarios;

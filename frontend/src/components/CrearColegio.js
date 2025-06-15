@@ -1,0 +1,531 @@
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import '../styles/estilosgenerales.css';
+
+function CrearColegio() {
+  const backendURL = 'http://localhost:5000/api';
+
+  const [nombreColegio, setNombreColegio] = useState('');
+  const [rbd, setRbd] = useState('');
+  const [modalidadesList, setModalidadesList] = useState([]);
+  const [jornadasList, setJornadasList] = useState([]);
+  const [nivelesList, setNivelesList] = useState([]);
+  const [ramasList, setRamasList] = useState([]);
+  const [sectorList, setSectorList] = useState([]);
+  const [especialidadList, setEspecialidadList] = useState([]);
+  const [codigoEnseList, setCodigoEnseList] = useState([]);
+  const [gradoList, setGradoList] = useState([]);
+  const [tipoCursoList, setTipoCursoList] = useState([]);
+  const [letrasList, setLetrasList] = useState([]);
+
+  const [selectedModalidad, setSelectedModalidad] = useState('');
+  const [selectedModalidadName, setSelectedModalidadName] = useState('');
+  const [selectedJornada, setSelectedJornada] = useState('');
+  const [selectedJornadaName, setSelectedJornadaName] = useState('');
+  const [selectedNiveles, setSelectedNiveles] = useState([]);
+  const [selectedRama, setSelectedRama] = useState('');
+  const [selectedRamaName, setSelectedRamaName] = useState('');
+  const [selectedSector, setSelectedSector] = useState('');
+  const [selectedSectorName, setSelectedSectorName] = useState('');
+  const [selectedEspecialidad, setSelectedEspecialidad] = useState('');
+  const [selectedEspecialidadName, setSelectedEspecialidadName] = useState('');
+  const [selectedCodigoEnse, setSelectedCodigoEnse] = useState('');
+  const [selectedCodigoEnseName, setSelectedCodigoEnseName] = useState('');
+  const [selectedGrados, setSelectedGrados] = useState([]);
+  const [selectedTipoCurso, setSelectedTipoCurso] = useState('');
+  const [selectedTipoCursoName, setSelectedTipoCursoName] = useState('');
+  const [selectedLetras, setSelectedLetras] = useState([]);
+
+  const [cursos, setCursos] = useState([]);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+
+  useEffect(() => {
+    axios.get(`${backendURL}/modalidades`).then(response => setModalidadesList(response.data));
+    axios.get(`${backendURL}/jornadas`).then(response => setJornadasList(response.data));
+    axios.get(`${backendURL}/niveles`).then(response => setNivelesList(response.data));
+    axios.get(`${backendURL}/ramas`).then(response => setRamasList(response.data));
+    axios.get(`${backendURL}/codigos-ense`).then(response => setCodigoEnseList(response.data));
+    axios.get(`${backendURL}/tipos-curso`).then(response => setTipoCursoList(response.data));
+    axios.get(`${backendURL}/letras`).then(response => setLetrasList(response.data));
+  }, [backendURL]);
+
+  useEffect(() => {
+    if (selectedRama) {
+      axios
+        .get(`${backendURL}/sectores/${selectedRama}`)
+        .then((response) => {
+          setSectorList(response.data);
+          setSelectedSector('');
+          setEspecialidadList([]);
+          setSelectedEspecialidad('');
+        })
+        .catch((error) => {
+          console.error('Error al cargar sectores:', error);
+          setErrorMessage('Hubo un error al cargar los sectores');
+        });
+    } else {
+      setSectorList([]);
+      setSelectedSector('');
+      setEspecialidadList([]);
+      setSelectedEspecialidad('');
+    }
+  }, [selectedRama, backendURL]);
+
+  useEffect(() => {
+    if (selectedSector) {
+      axios
+        .get(`${backendURL}/especialidades/${selectedSector}`)
+        .then((response) => {
+          setEspecialidadList(response.data);
+          setSelectedEspecialidad('');
+        })
+        .catch((error) => {
+          console.error('Error al cargar especialidades:', error);
+          setErrorMessage('Hubo un error al cargar las especialidades');
+        });
+    } else {
+      setEspecialidadList([]);
+      setSelectedEspecialidad('');
+    }
+  }, [selectedSector, backendURL]);
+
+  useEffect(() => {
+    if (selectedCodigoEnse) {
+      axios
+        .get(`${backendURL}/grados/${selectedCodigoEnse}`)
+        .then((response) => {
+          setGradoList(response.data);
+          setSelectedGrados([]);
+        })
+        .catch((error) => {
+          console.error('Error al cargar grados:', error);
+          setErrorMessage('Hubo un error al cargar los grados');
+        });
+    } else {
+      setGradoList([]);
+      setSelectedGrados([]);
+    }
+  }, [selectedCodigoEnse, backendURL]);
+
+  const handleAgregarCurso = () => {
+    if (!selectedCodigoEnse || selectedGrados.length === 0) {
+      setErrorMessage('Por favor, seleccione un código de enseñanza y al menos un grado antes de agregar un curso.');
+      return;
+    }
+
+    const cursoDuplicado = cursos.some(curso =>
+      curso.codigoEnseId === parseInt(selectedCodigoEnse) &&
+      curso.grados.some(grado =>
+        selectedGrados.includes(grado.gradoId) &&
+        (selectedLetras.some(letra => grado.letras.includes(letra)))
+      )
+    );
+
+    if (cursoDuplicado) {
+      setErrorMessage('El curso ya ha sido agregado.');
+      return;
+    }
+
+    const letrasConDescripcion = selectedLetras.map(letraId => {
+      const letra = letrasList.find(letra => letra.RefOrganizationTypeId === letraId);
+      return {
+        RefOrganizationTypeId: letraId,
+        Description: letra ? letra.Description : ''
+      };
+    });
+
+    setCursos([
+      ...cursos,
+      {
+        codigoEnseId: parseInt(selectedCodigoEnse),
+        codigoEnseName: selectedCodigoEnseName,
+        grados: selectedGrados.map(gradoId => ({
+          gradoId: parseInt(gradoId),
+          gradoName: gradoList.find(grado => grado.RefOrganizationTypeId === parseInt(gradoId)).Name,
+          letras: letrasConDescripcion
+        }))
+      }
+    ]);
+
+    setSelectedCodigoEnse('');
+    setSelectedCodigoEnseName('');
+    setSelectedGrados([]);
+    setSelectedLetras([]);
+    setErrorMessage('');
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+
+    if (cursos.length === 0) {
+      setErrorMessage('Por favor, agregue al menos un curso antes de crear el colegio.');
+      return;
+    }
+
+    if (
+      !nombreColegio ||
+      !rbd ||
+      !selectedModalidad ||
+      !selectedJornada ||
+      selectedNiveles.length === 0 ||
+      !selectedRama ||
+      !selectedSector ||
+      !selectedEspecialidad ||
+      !selectedTipoCurso
+    ) {
+      setErrorMessage('Por favor, complete todos los campos');
+      return;
+    }
+
+    const datosColegio = {
+      nombreColegio,
+      rbd,
+      modalidadId: parseInt(selectedModalidad),
+      modalidadName: selectedModalidadName,
+      jornadaId: parseInt(selectedJornada),
+      jornadaName: selectedJornadaName,
+      niveles: selectedNiveles.map(nivel => ({
+        nivelId: parseInt(nivel),
+        nivelName: nivelesList.find(n => n.RefOrganizationTypeId === parseInt(nivel)).Name
+      })),
+      ramaId: parseInt(selectedRama),
+      ramaName: selectedRamaName,
+      sectorId: parseInt(selectedSector),
+      sectorName: selectedSectorName,
+      especialidadId: parseInt(selectedEspecialidad),
+      especialidadName: selectedEspecialidadName,
+      tipoCursoId: parseInt(selectedTipoCurso),
+      tipoCursoName: selectedTipoCursoName,
+      cursos,
+    };
+
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    axios
+      .post(`${backendURL}/crear`, datosColegio)
+      .then((response) => {
+        setSuccessMessage('Colegio creado correctamente');
+        setNombreColegio('');
+        setRbd('');
+        setSelectedModalidad('');
+        setSelectedModalidadName('');
+        setSelectedJornada('');
+        setSelectedJornadaName('');
+        setSelectedNiveles([]);
+        setSelectedRama('');
+        setSelectedRamaName('');
+        setSelectedSector('');
+        setSelectedSectorName('');
+        setSelectedEspecialidad('');
+        setSelectedEspecialidadName('');
+        setSelectedCodigoEnse('');
+        setSelectedCodigoEnseName('');
+        setSelectedGrados([]);
+        setSelectedTipoCurso('');
+        setSelectedTipoCursoName('');
+        setCursos([]);
+        setSelectedLetras([]);
+      })
+      .catch((error) => {
+        console.error('Error al crear el colegio:', error);
+        setErrorMessage('Hubo un error al crear el colegio');
+      });
+  };
+
+  const toggleNivelSelection = (nivelId) => {
+    setSelectedNiveles(prev => {
+      if (prev.includes(nivelId)) {
+        return prev.filter(id => id !== nivelId);
+      } else {
+        return [...prev, nivelId];
+      }
+    });
+  };
+
+  const toggleGradoSelection = (gradoId) => {
+    setSelectedGrados(prev => {
+      if (prev.includes(gradoId)) {
+        return prev.filter(id => id !== gradoId);
+      } else {
+        return [...prev, gradoId];
+      }
+    });
+  };
+
+  const toggleLetraSelection = (letraId) => {
+    setSelectedLetras(prev => {
+      if (prev.includes(letraId)) {
+        return prev.filter(id => id !== letraId);
+      } else {
+        return [...prev, letraId];
+      }
+    });
+  };
+
+  return (
+    <div>
+      <h2 className="form-titulo">Crear Colegio</h2>
+
+      {successMessage && <div className="success-message">{successMessage}</div>}
+      {errorMessage && <div className="error-message">{errorMessage}</div>}
+
+      <form onSubmit={handleSubmit} className="form-registrar-profesor">
+        <div>
+          <label>Nombre del Colegio:</label>
+          <input
+            type="text"
+            value={nombreColegio}
+            onChange={(e) => setNombreColegio(e.target.value)}
+            placeholder="Ingresa el nombre del colegio"
+            required
+          />
+        </div>
+
+        <div>
+          <label>RBD:</label>
+          <input
+            type="text"
+            value={rbd}
+            onChange={(e) => setRbd(e.target.value)}
+            placeholder="Ingresa el RBD del colegio"
+            required
+          />
+        </div>
+
+        <div>
+          <label>Modalidad:</label>
+          <select
+            value={selectedModalidad}
+            onChange={(e) => {
+              setSelectedModalidad(e.target.value);
+              const selectedOption = modalidadesList.find(modalidad => modalidad.RefOrganizationTypeId === parseInt(e.target.value));
+              setSelectedModalidadName(selectedOption ? selectedOption.Name : '');
+            }}
+            required
+          >
+            <option value="">Selecciona una modalidad</option>
+            {modalidadesList.map((modalidad) => (
+              <option key={modalidad.RefOrganizationTypeId} value={modalidad.RefOrganizationTypeId}>
+                {modalidad.Name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label>Jornada:</label>
+          <select
+            value={selectedJornada}
+            onChange={(e) => {
+              setSelectedJornada(e.target.value);
+              const selectedOption = jornadasList.find(jornada => jornada.RefOrganizationTypeId === parseInt(e.target.value));
+              setSelectedJornadaName(selectedOption ? selectedOption.Name : '');
+            }}
+            required
+          >
+            <option value="">Selecciona una jornada</option>
+            {jornadasList.map((jornada) => (
+              <option key={jornada.RefOrganizationTypeId} value={jornada.RefOrganizationTypeId}>
+                {jornada.Name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label>Nivel:</label>
+          <div className="nivel-checkbox-group">
+            {nivelesList.map((nivel) => (
+              <div key={nivel.RefOrganizationTypeId}>
+                <input
+                  type="checkbox"
+                  value={nivel.RefOrganizationTypeId}
+                  checked={selectedNiveles.includes(nivel.RefOrganizationTypeId)}
+                  onChange={() => toggleNivelSelection(nivel.RefOrganizationTypeId)}
+                />
+                <label>{nivel.Name}</label>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label>Rama:</label>
+          <select
+            value={selectedRama}
+            onChange={(e) => {
+              setSelectedRama(e.target.value);
+              const selectedOption = ramasList.find(rama => rama.RefOrganizationTypeId === parseInt(e.target.value));
+              setSelectedRamaName(selectedOption ? selectedOption.Name : '');
+            }}
+            required
+          >
+            <option value="">Selecciona una rama</option>
+            {ramasList.map((rama) => (
+              <option key={rama.RefOrganizationTypeId} value={rama.RefOrganizationTypeId}>
+                {rama.Name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label>Sector:</label>
+          <select
+            value={selectedSector}
+            onChange={(e) => {
+              setSelectedSector(e.target.value);
+              const selectedOption = sectorList.find(sector => sector.RefOrganizationTypeId === parseInt(e.target.value));
+              setSelectedSectorName(selectedOption ? selectedOption.Name : '');
+            }}
+            required
+            disabled={!selectedRama || sectorList.length === 0}
+          >
+            <option value="">Selecciona un sector</option>
+            {sectorList.map((sector) => (
+              <option key={sector.RefOrganizationTypeId} value={sector.RefOrganizationTypeId}>
+                {sector.Name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label>Especialidad:</label>
+          <select
+            value={selectedEspecialidad}
+            onChange={(e) => {
+              setSelectedEspecialidad(e.target.value);
+              const selectedOption = especialidadList.find(especialidad => especialidad.RefOrganizationTypeId === parseInt(e.target.value));
+              setSelectedEspecialidadName(selectedOption ? selectedOption.Name : '');
+            }}
+            required
+            disabled={!selectedSector || especialidadList.length === 0}
+          >
+            <option value="">Selecciona una especialidad</option>
+            {especialidadList.map((especialidad) => (
+              <option key={especialidad.RefOrganizationTypeId} value={especialidad.RefOrganizationTypeId}>
+                {especialidad.Name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label>Tipo de Curso:</label>
+          <select
+            value={selectedTipoCurso}
+            onChange={(e) => {
+              setSelectedTipoCurso(e.target.value);
+              const selectedOption = tipoCursoList.find(tipo => tipo.RefOrganizationTypeId === parseInt(e.target.value));
+              setSelectedTipoCursoName(selectedOption ? selectedOption.Name : '');
+            }}
+            required
+          >
+            <option value="">Selecciona un tipo de curso</option>
+            {tipoCursoList.map((tipo) => (
+              <option key={tipo.RefOrganizationTypeId} value={tipo.RefOrganizationTypeId}>
+                {tipo.Name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label>Código de Enseñanza:</label>
+          <select
+            value={selectedCodigoEnse}
+            onChange={(e) => {
+              setSelectedCodigoEnse(e.target.value);
+              const selectedOption = codigoEnseList.find(codigo => codigo.RefOrganizationTypeId === parseInt(e.target.value));
+              setSelectedCodigoEnseName(selectedOption ? selectedOption.Name : '');
+            }}
+          >
+            <option value="">Selecciona un código de enseñanza</option>
+            {codigoEnseList.map((codigo) => (
+              <option key={codigo.RefOrganizationTypeId} value={codigo.RefOrganizationTypeId}>
+                {codigo.Name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label>Grado:</label>
+          <div className="grado-checkbox-group">
+            {gradoList.map((grado) => (
+              <div key={grado.RefOrganizationTypeId}>
+                <input
+                  type="checkbox"
+                  value={grado.RefOrganizationTypeId}
+                  checked={selectedGrados.includes(grado.RefOrganizationTypeId)}
+                  onChange={() => toggleGradoSelection(grado.RefOrganizationTypeId)}
+                />
+                <label>{grado.Name}</label>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label>Letras:</label>
+          <div className="horizontal-container">
+            {letrasList.map((letra) => (
+              <div key={letra.RefOrganizationTypeId}>
+                <input
+                  type="checkbox"
+                  value={letra.RefOrganizationTypeId}
+                  checked={selectedLetras.includes(letra.RefOrganizationTypeId)}
+                  onChange={() => toggleLetraSelection(letra.RefOrganizationTypeId)}
+                />
+                <label>{letra.Description}</label>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <button type="button" className="btn-enviar" onClick={handleAgregarCurso}>Agregar Curso</button>
+
+        <div className="curso-listado">
+          <h3>Cursos Agregados:</h3>
+          <table className="curso-tabla">
+            <thead>
+              <tr>
+                <th>Código de Enseñanza</th>
+                <th>Grados</th>
+                <th>Letras</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cursos.map((curso, index) => (
+                <tr key={index}>
+                  <td>{curso.codigoEnseName}</td>
+                  <td>
+                    <ul>
+                      {curso.grados.map((grado, idx) => (
+                        <li key={idx}>{grado.gradoName}</li>
+                      ))}
+                    </ul>
+                  </td>
+                  <td>
+                    <ul>
+                      {curso.grados.map((grado, idx) => (
+                        <li key={idx}>{grado.letras.map(letra => letra.Description).join(', ') || '-'}</li>
+                      ))}
+                    </ul>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <button type="submit" className="btn-enviar">Crear Colegio</button>
+      </form>
+    </div>
+  );
+}
+
+export default CrearColegio;
