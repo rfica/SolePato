@@ -2011,6 +2011,13 @@ const Notas = () => {
     setModalColumna(columna);
     setModalTipo(tipo);
     setModalVisible(true);
+    
+    // Logs para depuración
+    console.log(`[DEBUG] handleAbrirModalColumna called for columna: ${columna}`);
+    console.log(`[DEBUG] Initial modal type: ${tipo}`);
+    console.log(`[DEBUG] Current assessmentId (from state): ${assessmentId}`);
+    console.log(`[DEBUG] notesSaved structure:`, notasGuardadas.map(n => ({ Columna: n.Columna, AssessmentId: n.AssessmentId })));
+
 
     // Buscar el AssessmentId correcto para la columna clickeada en notasGuardadas
     let assessmentIdCorrecto = null;
@@ -2023,8 +2030,7 @@ const Notas = () => {
         // Fallback si por alguna razón no se encuentra en notasGuardadas
         // Usamos el assessmentId general del primer registro cargado
         assessmentIdCorrecto = assessmentId;
-      console.log(`[DEBUG DINAMICO] Error al cargar configuración para ${columna}:`, err);
-      setConfigColumna(null);
+      console.warn(`[DEBUG DINAMICO] Could not find AssessmentId for column ${columna} in notesSaved. Using general assessmentId: ${assessmentId}`);
       assessmentIdEspecifico = assessmentId;
     }
 
