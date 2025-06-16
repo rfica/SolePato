@@ -62,6 +62,7 @@ const tiposColumnasEjemplo = {
 
 const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tiposEvaluacion, visualizacionColumnas, cursoId, asignaturaId, assessmentId, configColumna }) => {
 	
+	console.log("[DEBUG FRONTEND] configColumna prop en ModalConfiguracionNota:", configColumna);
 	console.log("[DEBUG] tiposEvaluacion recibidos en modal:", tiposEvaluacion);
 
 	
@@ -110,6 +111,7 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 
     const response = await axios.get(`http://localhost:5000/api/notas/configurar-columna/${assessmentId}`);
     const configuracion = response.data;
+	console.log("[DEBUG FRONTEND] Data recibida de API configurar-columna:", configuracion);
     if (!configuracion) return;
 
     console.log("[DEBUG] Configuración obtenida:", configuracion);
@@ -260,7 +262,9 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 			// === CORRECCIÓN AQUÍ: Usar RefAssessmentPurposeId ===
 			if (configColumna.RefAssessmentPurposeId && tiposEvaluacion.find(t => t.id == configColumna.RefAssessmentPurposeId)) {
 			  setEvaluacion(configColumna.RefAssessmentPurposeId.toString());
-			  setEvaluacion(tiposEvaluacion[0]?.id?.toString() || '');
+			  console.log(`[DEBUG ESTADO] Setting evaluacion from configColumna: ${configColumna.RefAssessmentPurposeId}`);
+			} else {
+				console.log(`[DEBUG ESTADO] No configColumna.RefAssessmentPurposeId found or valid.`);
 			}
 
 			  
@@ -268,6 +272,7 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 			} else {
 			  // Si no hay configuración previa, usar el primer tipo disponible
 			  setEvaluacion(tiposEvaluacion[0].id.toString());
+			  console.log(`[DEBUG ESTADO] Setting evaluacion from first tiposEvaluacion: ${tiposEvaluacion[0].id}`);
 			}
 		  }
 		}, [visible, tiposEvaluacion, configColumna]);
