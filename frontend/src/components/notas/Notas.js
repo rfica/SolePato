@@ -257,9 +257,9 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 			  
 			  // Configurar evaluacion desde configColumna.  Cambio16_06_2025
 		  const tipoEvalValido = tiposEvaluacion.find(t => t.id == configColumna.RefAssessmentTypeId);
-			if (configColumna.RefAssessmentTypeId && tipoEvalValido) {
-			  setEvaluacion(configColumna.RefAssessmentTypeId.toString());
-			} else {
+			// === CORRECCIÓN AQUÍ: Usar RefAssessmentPurposeId ===
+			if (configColumna.RefAssessmentPurposeId && tiposEvaluacion.find(t => t.id == configColumna.RefAssessmentPurposeId)) {
+			  setEvaluacion(configColumna.RefAssessmentPurposeId.toString());
 			  setEvaluacion(tiposEvaluacion[0]?.id?.toString() || '');
 			}
 
