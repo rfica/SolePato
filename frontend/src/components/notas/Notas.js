@@ -205,7 +205,6 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 				setEscala(configColumna.RefScoreMetricTypeId?.toString() || '');
 			
 				// REMOVIDO: setEvaluacion se maneja en useEffect consolidado
-
 				setTipoColumna(configColumna.RefAssessmentSubtestTypeId?.toString() || tipo?.toString() || '1');
 				setPonderacion(configColumna.WeightPercent || 0);
 				setNoInfluye(!!configColumna.Tier);
@@ -253,7 +252,6 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 			  setFechaEvaluacion(configColumna.PublishedDate ? dayjs(configColumna.PublishedDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'));
 			  setEscala(configColumna.RefScoreMetricTypeId?.toString() || '');
 			  setTipoColumna(configColumna.RefAssessmentSubtestTypeId?.toString() || tipo?.toString() || '1');
-			  setPonderacion(configColumna.WeightPercent || 0);
 			  setNoInfluye(!!configColumna.Tier);
 			  setOasAgregados(configColumna.objetivos || []);
 			  
@@ -263,7 +261,13 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 			if (configColumna.RefAssessmentPurposeId && tiposEvaluacion.find(t => t.id == configColumna.RefAssessmentPurposeId)) {
 			  setEvaluacion(configColumna.RefAssessmentPurposeId.toString());
 			  console.log(`[DEBUG ESTADO] Setting evaluacion from configColumna: ${configColumna.RefAssessmentPurposeId}`);
-			} else {
+				
+			// También establecer ponderación aquí si viene en configColumna
+			setPonderacion(configColumna.WeightPercent || 0);
+
+			}
+			
+			else {
 				console.log(`[DEBUG ESTADO] No configColumna.RefAssessmentPurposeId found or valid.`);
 			}
 
@@ -274,7 +278,7 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 			  setEvaluacion(tiposEvaluacion[0].id.toString());
 			  console.log(`[DEBUG ESTADO] Setting evaluacion from first tiposEvaluacion: ${tiposEvaluacion[0].id}`);
 			}
-		  }
+		  }		  
 		}, [visible, tiposEvaluacion, configColumna]);
 
 		// Monitorear cambios en el estado evaluacion
