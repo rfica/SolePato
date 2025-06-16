@@ -255,12 +255,16 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 			  setNoInfluye(!!configColumna.Tier);
 			  setOasAgregados(configColumna.objetivos || []);
 			  
-			  // Configurar evaluacion desde configColumna
-			  if (configColumna.RefAssessmentTypeId) {
-				setEvaluacion(configColumna.RefAssessmentTypeId.toString());
-			  } else {
-				setEvaluacion(tiposEvaluacion[0].id.toString());
-			  }
+			  // Configurar evaluacion desde configColumna.  Cambio16_06_2025
+		  const tipoEvalValido = tiposEvaluacion.find(t => t.id == configColumna.RefAssessmentTypeId);
+			if (configColumna.RefAssessmentTypeId && tipoEvalValido) {
+			  setEvaluacion(configColumna.RefAssessmentTypeId.toString());
+			} else {
+			  setEvaluacion(tiposEvaluacion[0]?.id?.toString() || '');
+			}
+
+			  
+			  
 			} else {
 			  // Si no hay configuración previa, usar el primer tipo disponible
 			  setEvaluacion(tiposEvaluacion[0].id.toString());
