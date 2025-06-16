@@ -1015,6 +1015,10 @@ exports.obtenerConfiguracionColumna = async (req, res) => {
         WHERE A.AssessmentId = @assessmentId
       `);
 
+    // === AGREGAR ESTE LOG PARA DEPURACIÓN ===
+    console.log(`[DEBUG BACKEND] Resultado crudo de la consulta para AssessmentId ${assessmentId}:`, result.recordset);
+    // =======================================
+
     if (result.recordset.length === 0) {
       console.log(`[OBTENER_CONFIG] No se encontró configuración para assessmentId: ${assessmentId}`);
       return res.status(404).json({ error: 'No se encontró configuración para la columna indicada.' });
