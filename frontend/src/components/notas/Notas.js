@@ -2007,46 +2007,24 @@ const Notas = () => {
     setModalTipo(tipo);
     setModalVisible(true);
 
-    // Buscar dinámicamente el AssessmentSubtestId para la columna
-    let assessmentIdEspecifico = null;
+    // Buscar el AssessmentId correcto para la columna clickeada en notasGuardadas
+    let assessmentIdCorrecto = null;
+    // Buscamos la primera nota que coincida con la columna (Identifier)
+    const notaDeColumna = notasGuardadas.find(nota => nota.Columna === columna);
     
-    try {
-      // Primero, obtener la configuración de la columna para obtener su AssessmentSubtestId
-      const configRes = await axios.get(`http://localhost:5000/api/notas/configurar-columna/${assessmentId}`);
-      
-      if (configRes.data) {
-        console.log(`[DEBUG DINAMICO] Configuración encontrada para ${columna}:`, configRes.data);
-        setConfigColumna(configRes.data);
-        
-        // Si hay notasGuardadas, buscar el AssessmentId correspondiente
-        if (notasGuardadas && notasGuardadas.length > 0) {
-          const notaColumna = notasGuardadas.find(nota => {
-            return nota.AssessmentSubtestId === configRes.data.AssessmentSubtestId;
-          });
-          
-          if (notaColumna) {
-            assessmentIdEspecifico = notaColumna.AssessmentId;
-            console.log(`[DEBUG DINAMICO] AssessmentId encontrado: ${assessmentIdEspecifico} para ${columna}`);
-          } else {
-            assessmentIdEspecifico = assessmentId;
-            console.log(`[DEBUG DINAMICO] Usando assessmentId base: ${assessmentIdEspecifico}`);
-          }
-        } else {
-          assessmentIdEspecifico = assessmentId;
-        }
-      } else {
-        console.log(`[DEBUG DINAMICO] No hay configuración previa para ${columna}`);
-        setConfigColumna(null);
-        assessmentIdEspecifico = assessmentId;
-      }
-    } catch (err) {
+    if (notaDeColumna) {
+        assessmentIdCorrecto = notaDeColumna.AssessmentId;
+    } else {
+        // Fallback si por alguna razón no se encuentra en notasGuardadas
+        // Usamos el assessmentId general del primer registro cargado
+        assessmentIdCorrecto = assessmentId;
       console.log(`[DEBUG DINAMICO] Error al cargar configuración para ${columna}:`, err);
       setConfigColumna(null);
       assessmentIdEspecifico = assessmentId;
     }
 
     // Guardar el assessmentId específico en el estado
-    setAssessmentIdEspecifico(assessmentIdEspecifico);
+    setAssessmentIdEspecifico(assessmentIdCorrecto); // Establecer el AssessmentId correcto para el modal
   };
 
   const handleCerrarModal = () => {
