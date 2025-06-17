@@ -112,18 +112,37 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 
     const response = await axios.get(`http://localhost:5000/api/notas/configurar-columna/${assessmentId}`);
     const configuracion = response.data;
-	console.log("[DEBUG FRONTEND] Data recibida de API configurar-columna:", configuracion);
+    console.log("[DEBUG FRONTEND] Data recibida de API configurar-columna:", configuracion);
     if (!configuracion) return;
 
     console.log("[DEBUG] Configuración obtenida:", configuracion);
 
     // Actualiza todos los estados (esto ya lo tienes)
     setDescripcion(configuracion.Description || '');
-    setFechaEvaluacion(configuracion.PublishedDate ? dayjs(configuracion.PublishedDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'));
+    
+    // CORRECCIÓN CRÍTICA: Manejo de fecha sin conversiones de zona horaria
+    if (configuracion.PublishedDate) {
+      // Extraer solo la parte de la fecha (YYYY-MM-DD) sin conversiones
+      let fechaCorrecta = configuracion.PublishedDate;
+      if (fechaCorrecta.includes('T')) {
+        fechaCorrecta = fechaCorrecta.split('T')[0];
+      }
+      console.log("[DEBUG FECHA] Fecha original de BD en obtenerConfiguracionColumna:", configuracion.PublishedDate);
+      console.log("[DEBUG FECHA] Fecha corregida en obtenerConfiguracionColumna:", fechaCorrecta);
+      setFechaEvaluacion(fechaCorrecta);
+    } else {
+      setFechaEvaluacion(dayjs().format('YYYY-MM-DD'));
+    }
+    
     setEscala(configuracion.RefScoreMetricTypeId?.toString() || '');
 
-	// COMENTADO: Esta línea sobrescribe evaluacion y causa el conflicto
-	// setEvaluacion(configuracion.RefAssessmentTypeId?.toString() || '');
+    // Establecer evaluacion directamente aquí para mayor seguridad
+    if (configuracion.RefAssessmentPurposeId !== undefined && configuracion.RefAssessmentPurposeId !== null) {
+      const refIdStr = String(configuracion.RefAssessmentPurposeId);
+      console.log("[DEBUG] Estableciendo evaluacion desde API:", refIdStr);
+      setEvaluacion(refIdStr);
+    }
+    
     setTipoColumna(configuracion.RefAssessmentSubtestTypeId?.toString() || tipo?.toString() || '1');
     setPonderacion(configuracion.WeightPercent || 0);
     setNoInfluye(!!configuracion.Tier);
@@ -228,28 +247,59 @@ useEffect(() => {
         console.log("[DEBUG] configColumna present:", !!configColumna);
         
         if (configColumna) {
-            setFechaEvaluacion(configColumna.PublishedDate ? dayjs(configColumna.PublishedDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'));
+            // CORRECCIÓN CRÍTICA: Manejo de fecha sin conversiones de zona horaria
+            if (configColumna.PublishedDate) {
+                // Mostrar la fecha exactamente como viene de la BD sin conversiones
+                const fechaOriginal = configColumna.PublishedDate;
+                console.log("[DEBUG FECHA] Fecha original de BD:", fechaOriginal);
+                
+                // Extraer solo la parte de la fecha (YYYY-MM-DD) sin conversiones
+                let fechaCorrecta = fechaOriginal;
+                if (fechaOriginal.includes('T')) {
+                    fechaCorrecta = fechaOriginal.split('T')[0];
+                }
+                
+                console.log("[DEBUG FECHA] Fecha extraída sin conversiones:", fechaCorrecta);
+                setFechaEvaluacion(fechaCorrecta);
+            } else {
+                setFechaEvaluacion(dayjs().format('YYYY-MM-DD'));
+            }
+            
             setEscala(configColumna.RefScoreMetricTypeId?.toString() || '');
             setTipoColumna(configColumna.RefAssessmentSubtestTypeId?.toString() || tipo?.toString() || '1');
             setNoInfluye(!!configColumna.Tier);
             setOasAgregados(configColumna.objetivos || []);
-            
-            // Configurar evaluacion desde configColumna.  Cambio16_06_2025
-            console.log("[DEBUG] Processing existing configColumna...");
-            console.log("[DEBUG] configColumna.RefAssessmentPurposeId:", configColumna.RefAssessmentPurposeId);
-            console.log("[DEBUG] Searching in tiposEvaluacion list:", tiposEvaluacion);
+            setDescripcion(configColumna.Description || '');
+            setPonderacion(configColumna.WeightPercent || 0);
 
-            if (configColumna.RefAssessmentPurposeId && tiposEvaluacion.find(t => t.id == configColumna.RefAssessmentPurposeId)) {
-                setEvaluacion(configColumna.RefAssessmentPurposeId.toString());
-                console.log(`[DEBUG ESTADO] Setting evaluacion from configColumna: ${configColumna.RefAssessmentPurposeId}`);
-                setDescripcion(configColumna.Description || '');
-                setPonderacion(configColumna.WeightPercent || 0);
-            } else if (configColumna) {
-                setEvaluacion(tiposEvaluacion[0].id.toString());
-                setDescripcion(configColumna.Description || '');
-                console.log(`[DEBUG ESTADO] No configColumna.RefAssessmentPurposeId found or valid.`);
-                setPonderacion(configColumna.WeightPercent || 0);
+            // --- CORRECCIÓN CLAVE ---
+            const refId = configColumna.RefAssessmentPurposeId;
+            console.log("[DEBUG] RefAssessmentPurposeId:", refId);
+            
+            // Convertimos explícitamente a string y manejamos valores falsy
+            const refIdStr = refId !== undefined && refId !== null ? String(refId) : '';
+            console.log("[DEBUG] RefAssessmentPurposeId como string:", refIdStr);
+            
+            // Buscamos en tiposEvaluacion el elemento que coincide
+            console.log("[DEBUG] tiposEvaluacion disponibles:", tiposEvaluacion.map(t => ({id: t.id, desc: t.Description})));
+            
+            // Buscar coincidencia exacta por ID
+            const match = tiposEvaluacion.find(t => String(t.id) === refIdStr);
+            console.log("[DEBUG] Match encontrado:", match);
+            
+            if (match) {
+                console.log("[DEBUG ESTADO] evaluacion cambiará a: ", refIdStr, "tipo:", typeof refIdStr);
+                setEvaluacion(refIdStr);
+            } else if (tiposEvaluacion.length > 0) {
+                // Si no hay coincidencia, usar el primer valor disponible
+                console.log("[DEBUG] No se encontró coincidencia, usando primer valor:", tiposEvaluacion[0].id);
+                setEvaluacion(tiposEvaluacion[0].id);
+            } else {
+                setEvaluacion('');
             }
+        } else {
+            // Si no hay configColumna, inicializar con valor vacío
+            setEvaluacion('');
         }
     }
 }, [visible, tiposEvaluacion, configColumna]);
@@ -511,10 +561,9 @@ useEffect(() => {
 	
 	
 	if (!evaluacion || !escala) {
-  Swal.fire('Campos incompletos', 'Debes seleccionar tipo de evaluación y escala.', 'warning');
-  return;
-}
-
+      Swal.fire('Campos incompletos', 'Debes seleccionar tipo de evaluación y escala.', 'warning');
+      return;
+    }
 
     // Capturar valores anteriores para el log
     const valoresAnteriores = {
@@ -527,7 +576,7 @@ useEffect(() => {
       fecha: configColumna?.PublishedDate || ''
     };
 
-    // Valores nuevos
+    // Valores nuevos - asegurar que la fecha esté en formato YYYY-MM-DD sin conversiones
     const valoresNuevos = {
       descripcion: descripcion,
       tipoEvaluacionId: parseInt(evaluacion),
@@ -535,11 +584,41 @@ useEffect(() => {
       escalaId: parseInt(escala),
       ponderacion: parseFloat(ponderacion),
       excluirPromedio: noInfluye ? 1 : 0,
-      fecha: fechaEvaluacion
+      fecha: fechaEvaluacion // Ya está en formato YYYY-MM-DD
     };
 
     // Registrar cambios en el log (antes de guardar)
     if (configColumna && assessmentId) {
+      // Formatear fechas para comparación consistente
+      const formatearFecha = (fecha) => {
+        if (!fecha) return '';
+        // Normalizar formato de fecha para comparación - extraer solo YYYY-MM-DD
+        try {
+          // Si la fecha tiene formato ISO, extraer solo la parte de la fecha
+          if (fecha.includes('T')) {
+            return fecha.split('T')[0];
+          }
+          // Si ya es YYYY-MM-DD, devolverla tal cual
+          if (/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+            return fecha;
+          }
+          // Otros formatos, intentar convertir con dayjs
+          return dayjs(fecha).format('YYYY-MM-DD');
+        } catch (e) {
+          console.error("[ERROR FECHA] Error al formatear fecha:", e);
+          return fecha;
+        }
+      };
+      
+      const fechaAnteriorFormateada = formatearFecha(valoresAnteriores.fecha);
+      const fechaNuevaFormateada = formatearFecha(valoresNuevos.fecha);
+      
+      console.log("[DEBUG FECHAS] Fecha anterior (original):", valoresAnteriores.fecha);
+      console.log("[DEBUG FECHAS] Fecha anterior (formateada):", fechaAnteriorFormateada);
+      console.log("[DEBUG FECHAS] Fecha nueva (original):", valoresNuevos.fecha);
+      console.log("[DEBUG FECHAS] Fecha nueva (formateada):", fechaNuevaFormateada);
+      console.log("[DEBUG FECHAS] ¿Son iguales?", fechaAnteriorFormateada === fechaNuevaFormateada);
+
       const cambios = [
         {
           campo: 'Description',
@@ -592,15 +671,17 @@ useEffect(() => {
         },
         {
           campo: 'PublishedDate',
-          valorAnterior: valoresAnteriores.fecha,
-          valorNuevo: valoresNuevos.fecha,
+          valorAnterior: fechaAnteriorFormateada,
+          valorNuevo: fechaNuevaFormateada,
           descripcion: 'Fecha evaluación'
         }
       ];
 
-/*
+      // Registrar solo los cambios reales
       for (const cambio of cambios) {
+        // Solo registrar si realmente hubo un cambio
         if (String(cambio.valorAnterior) !== String(cambio.valorNuevo)) {
+          console.log(`[DEBUG CAMBIO] Campo ${cambio.descripcion}: ${cambio.valorAnterior} → ${cambio.valorNuevo}`);
           try {
             await axios.post('http://localhost:5000/api/notas/log-cambio-columna', {
               assessmentSubtestId: configColumna.AssessmentSubtestId,
@@ -615,15 +696,15 @@ useEffect(() => {
           } catch (logError) {
             console.error('Error al registrar cambio:', logError);
           }
+        } else {
+          console.log(`[DEBUG CAMBIO] Campo ${cambio.descripcion} sin cambios`);
         }
       }
-	  
-	  */
-	  
-	  
     }
 
-    // Guardar configuración
+    // Guardar configuración - asegurar que la fecha se envía en formato YYYY-MM-DD
+    console.log("[DEBUG GUARDAR] Enviando fecha:", valoresNuevos.fecha);
+    
     await axios.post('http://localhost:5000/api/notas/configurar-columna', {
       assessmentId,
       identifier: columna,
@@ -634,7 +715,7 @@ useEffect(() => {
       escalaId: valoresNuevos.escalaId,
       ponderacion: valoresNuevos.ponderacion,
       excluirPromedio: valoresNuevos.excluirPromedio,
-      fecha: valoresNuevos.fecha,
+      fecha: valoresNuevos.fecha, // Ya está en formato YYYY-MM-DD
       objetivos: oasAgregados.map(oa => oa.LearningObjectiveId),
       usuarioId
     });
@@ -935,7 +1016,7 @@ const confirmarCambioTipo = async (nuevoValor) => {
             onChange={e => {
               setEvaluacion(e.target.value);
               // Buscar el tipo de evaluación por id para verificar si es diagnóstica
-              const tipoSeleccionado = tiposEvaluacion.find(tipo => tipo.id == e.target.value);
+              const tipoSeleccionado = tiposEvaluacion.find(tipo => tipo.id === e.target.value);
               if (tipoSeleccionado && tipoSeleccionado.Description === "Diagnóstica") {
                 setNoInfluye(true);
               } else {
@@ -1103,11 +1184,23 @@ const confirmarCambioTipo = async (nuevoValor) => {
         <label>Fecha evaluación:</label>
         <input type="date" className="form-control" value={fechaEvaluacion} onChange={e => setFechaEvaluacion(e.target.value)} />
         <label>Tipo evaluación:</label>
-        <select className="form-control" value={evaluacion} onChange={e => setEvaluacion(e.target.value)}>
+        <select 
+          className="form-control" 
+          value={evaluacion} 
+          onChange={e => {
+            console.log("[DEBUG SELECT] Valor seleccionado:", e.target.value);
+            setEvaluacion(e.target.value);
+          }}
+        >
           <option value="">Seleccione</option>
-          {tiposEvaluacion.map(op => (
-            <option key={op.id} value={op.id}>{op.Description}</option>
-          ))}
+          {tiposEvaluacion && tiposEvaluacion.length > 0 ? tiposEvaluacion.map(op => {
+            const optionValue = String(op.id || '');
+            return (
+              <option key={optionValue} value={optionValue}>
+                {op.Description}
+              </option>
+            );
+          }) : <option disabled>Cargando opciones...</option>}
         </select>
         <label style={{ marginLeft: 'auto' }}>
           <input type="checkbox" checked={noInfluye} onChange={e => setNoInfluye(e.target.checked)} /> No influye en promedio
@@ -1492,12 +1585,16 @@ const Notas = () => {
         setEscalas(res.data.escalas);
         setTiposEvaluacion(res.data.tiposEvaluacion.map(t => ({
           ...t,
-          id: String(t.RefAssessmentPurposeId),
+          id: String(t.RefAssessmentPurposeId || t.id),
           Description: t.AssessmentPurposeDescription || t.Description
         })));
-        window.tiposColumnaGlobal = res.data.tiposColumna;
+        // También corrijo el global para evitar problemas en otros componentes
+        window.tiposEvaluacionGlobal = res.data.tiposEvaluacion.map(t => ({
+          ...t,
+          id: String(t.RefAssessmentPurposeId || t.id),
+          Description: t.AssessmentPurposeDescription || t.Description
+        }));
         window.escalasGlobal = res.data.escalas;
-        window.tiposEvaluacionGlobal = res.data.tiposEvaluacion;
       } catch (err) {
         console.error('Error al cargar opciones de referencia:', err);
       }
@@ -2016,7 +2113,6 @@ const Notas = () => {
     console.log(`[DEBUG] Current assessmentId (from state): ${assessmentId}`);
     console.log(`[DEBUG] notesSaved structure:`, notasGuardadas.map(n => ({ Columna: n.Columna, AssessmentId: n.AssessmentId })));
 
-
     // Buscar el AssessmentId correcto para la columna clickeada en notasGuardadas
     let assessmentIdCorrecto = null;
     // Buscamos la primera nota que coincida con la columna (Identifier)
@@ -2024,12 +2120,32 @@ const Notas = () => {
     
     if (notaDeColumna) {
         assessmentIdCorrecto = notaDeColumna.AssessmentId;
+        
+        // Importante: Intentar obtener la configuración completa de la columna
+        try {
+          const configResponse = await axios.get(`http://localhost:5000/api/notas/configurar-columna/${assessmentIdCorrecto}`);
+          const configData = configResponse.data;
+          
+          console.log("[DEBUG] Configuración obtenida para columna:", configData);
+          
+          // Establecer la configuración completa en el estado
+          setConfigColumna(configData);
+          
+          // Asegurarnos de que el tipo de evaluación esté correctamente establecido
+          if (configData && configData.RefAssessmentPurposeId !== undefined) {
+            console.log("[DEBUG] RefAssessmentPurposeId encontrado:", configData.RefAssessmentPurposeId);
+          } else {
+            console.log("[DEBUG] No se encontró RefAssessmentPurposeId en la configuración");
+          }
+        } catch (err) {
+          console.error("[ERROR] No se pudo obtener la configuración de la columna:", err);
+        }
     } else {
         // Fallback si por alguna razón no se encuentra en notasGuardadas
         // Usamos el assessmentId general del primer registro cargado
         assessmentIdCorrecto = assessmentId;
-      console.warn(`[DEBUG DINAMICO] Could not find AssessmentId for column ${columna} in notesSaved. Using general assessmentId: ${assessmentId}`);
-      assessmentIdEspecifico = assessmentId;
+        console.warn(`[DEBUG DINAMICO] Could not find AssessmentId for column ${columna} in notesSaved. Using general assessmentId: ${assessmentId}`);
+        setConfigColumna(null);
     }
 
     // Guardar el assessmentId específico en el estado
