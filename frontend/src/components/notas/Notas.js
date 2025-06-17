@@ -217,11 +217,12 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 		useEffect(() => {
 		  // Solo ejecutar cuando el modal está visible, hay tipos de evaluación disponibles
 		  // y configColumna ha sido cargado (configColumna puede ser null si es nueva columna)
-		  if (visible && tiposEvaluacion && tiposEvaluacion.length > 0) {
+		  if (visible && tiposEvaluacion && tiposEvaluacion.length > 0 && configColumna !== undefined) {
 			// CONSOLIDADO: Aplicar TODA la configuración aquí en un solo lugar
 			console.log("[DEBUG] Effect for initializing evaluacion state triggered.");
 			console.log("[DEBUG] visible:", visible);
 			console.log("[DEBUG] tiposEvaluacion length:", tiposEvaluacion.length);
+			console.log("[DEBUG] configColumna:", configColumna);
 			console.log("[DEBUG] configColumna present:", !!configColumna);
 			if (configColumna) {
 			  setFechaEvaluacion(configColumna.PublishedDate ? dayjs(configColumna.PublishedDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'));
@@ -239,21 +240,23 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 			  setEvaluacion(configColumna.RefAssessmentPurposeId.toString());
 			  console.log(`[DEBUG ESTADO] Setting evaluacion from configColumna: ${configColumna.RefAssessmentPurposeId}`);
 			  setDescripcion(configColumna.Description || '');
-				
-			// También establecer ponderación aquí si viene en configColumna
-			setPonderacion(configColumna.WeightPercent || 0);
 
-			}
-			
+			}  else { // Solo ejecutar el fallback si configColumna existe pero no tiene un RefAssessmentPurposeId válido
 				// Fallback: usar el primer tipo si configColumna no tiene un tipo de propósito válido
 				setEvaluacion(tiposEvaluacion[0].id.toString());
 				setDescripcion(configColumna.Description || '');
 				console.log(`[DEBUG ESTADO] No configColumna.RefAssessmentPurposeId found or valid.`);
 			}
+			// También establecer ponderación aquí si viene en configColumna
+			setPonderacion(configColumna.WeightPercent || 0);
 			} else {
 			  //Si configColumna es null (modal abierto para nueva columna)
 			  setDescripcion(''); // Limpiar descripción si es nueva columna
 			  setPonderacion(0); // Limpiar ponderación si es nueva columna
+			  // Limpiar OAs agregados si es nueva columna
+			  setOasAgregados([]);
+			  setNoInfluye(false); // No influye por defecto a false para nueva columna
+			  setTipoColumna(tipo?.toString() || '1'); // Usar el tipo inicial si existe
 			  // Si no hay configuración previa, usar el primer tipo disponible
 			  setEvaluacion(tiposEvaluacion[0].id.toString());
 				console.log(`[DEBUG ESTADO] Setting evaluacion from first tiposEvaluacion: ${tiposEvaluacion[0].id}`);
@@ -261,6 +264,10 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 			}
 		  }, [visible, tiposEvaluacion, configColumna]); // Dependencias: visible, tiposEvaluacion, configColumna
 
+		  // Manejar el caso de tiposEvaluacion vacío
+		  useEffect(() => {
+			if (visible && tiposEvaluacion && tiposEvaluacion.length === 0) { setEvaluacion(''); }
+		  }, [visible, tiposEvaluacion]);
 		// Monitorear cambios en el estado evaluacion
 		useEffect(() => {
 		  console.log("[DEBUG ESTADO] evaluacion cambió a:", evaluacion, "tipo:", typeof evaluacion);
