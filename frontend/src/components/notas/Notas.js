@@ -251,8 +251,9 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 				console.log(`[DEBUG ESTADO] No configColumna.RefAssessmentPurposeId found or valid.`);
 			}
 			} else {
-				//Si configColumna es null (modal abierto para nueva columna)
-				setDescripcion(''); // Limpiar descripción si es nueva columna
+			  //Si configColumna es null (modal abierto para nueva columna)
+			  setDescripcion(''); // Limpiar descripción si es nueva columna
+			  setPonderacion(0); // Limpiar ponderación si es nueva columna
 			  // Si no hay configuración previa, usar el primer tipo disponible
 			  setEvaluacion(tiposEvaluacion[0].id.toString());
 				console.log(`[DEBUG ESTADO] Setting evaluacion from first tiposEvaluacion: ${tiposEvaluacion[0].id}`);
