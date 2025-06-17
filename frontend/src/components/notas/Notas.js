@@ -2350,7 +2350,7 @@ const Notas = () => {
         asignaturaId={asignaturaSeleccionada}
         assessmentId={assessmentIdEspecifico}
         configColumna={configColumna}
-      />
+      /> {/* Pasar una copia si no es null */}
 	  	  
       <ModalRegistroCambios visible={mostrarModalCambios} onClose={() => setMostrarModalCambios(false)} />
     </div>
