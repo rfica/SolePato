@@ -1,4 +1,5 @@
 // frontend/src/components/notas/Notas.js
+//rf
 
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
@@ -213,111 +214,85 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 			}, [configColumna]);
 
 
-		// CONSOLIDADO: useEffect único para manejar inicialización del dropdown evaluacion
-		useEffect(() => {
-		  // Solo ejecutar cuando el modal está visible, hay tipos de evaluación disponibles
-		  // y configColumna ha sido cargado (configColumna puede ser null si es nueva columna)
-		  if (visible && tiposEvaluacion && tiposEvaluacion.length > 0 && configColumna !== undefined) {
-			// CONSOLIDADO: Aplicar TODA la configuración aquí en un solo lugar
-			console.log("[DEBUG] Effect for initializing evaluacion state triggered.");
-			console.log("[DEBUG] visible:", visible);
-			console.log("[DEBUG] tiposEvaluacion length:", tiposEvaluacion.length);
-			console.log("[DEBUG] configColumna:", configColumna);
-			console.log("[DEBUG] configColumna present:", !!configColumna);
-			if (configColumna) {
-			  setFechaEvaluacion(configColumna.PublishedDate ? dayjs(configColumna.PublishedDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'));
-			  setEscala(configColumna.RefScoreMetricTypeId?.toString() || '');
-			  setTipoColumna(configColumna.RefAssessmentSubtestTypeId?.toString() || tipo?.toString() || '1');
-			  setNoInfluye(!!configColumna.Tier);
-			  setOasAgregados(configColumna.objetivos || []);
-			  
-			  // Configurar evaluacion desde configColumna.  Cambio16_06_2025
-			  console.log("[DEBUG] Processing existing configColumna...");
-			  console.log("[DEBUG] configColumna.RefAssessmentPurposeId:", configColumna.RefAssessmentPurposeId);
-			  console.log("[DEBUG] Searching in tiposEvaluacion list:", tiposEvaluacion);
 
-			if (configColumna.RefAssessmentPurposeId && tiposEvaluacion.find(t => t.id == configColumna.RefAssessmentPurposeId)) {
-			  setEvaluacion(configColumna.RefAssessmentPurposeId.toString());
-			  console.log(`[DEBUG ESTADO] Setting evaluacion from configColumna: ${configColumna.RefAssessmentPurposeId}`);
-			  setDescripcion(configColumna.Description || '');
+// CONSOLIDADO: useEffect único para manejar inicialización del dropdown evaluacion
+useEffect(() => {
+    // Solo ejecutar cuando el modal está visible, hay tipos de evaluación disponibles
+    // y configColumna ha sido cargado (configColumna puede ser null si es nueva columna)
+    if (visible && tiposEvaluacion && tiposEvaluacion.length > 0 && configColumna !== undefined) {
+        // CONSOLIDADO: Aplicar TODA la configuración aquí en un solo lugar
+        console.log("[DEBUG] Effect for initializing evaluacion state triggered.");
+        console.log("[DEBUG] visible:", visible);
+        console.log("[DEBUG] tiposEvaluacion length:", tiposEvaluacion.length);
+        console.log("[DEBUG] configColumna:", configColumna);
+        console.log("[DEBUG] configColumna present:", !!configColumna);
+        
+        if (configColumna) {
+            setFechaEvaluacion(configColumna.PublishedDate ? dayjs(configColumna.PublishedDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'));
+            setEscala(configColumna.RefScoreMetricTypeId?.toString() || '');
+            setTipoColumna(configColumna.RefAssessmentSubtestTypeId?.toString() || tipo?.toString() || '1');
+            setNoInfluye(!!configColumna.Tier);
+            setOasAgregados(configColumna.objetivos || []);
+            
+            // Configurar evaluacion desde configColumna.  Cambio16_06_2025
+            console.log("[DEBUG] Processing existing configColumna...");
+            console.log("[DEBUG] configColumna.RefAssessmentPurposeId:", configColumna.RefAssessmentPurposeId);
+            console.log("[DEBUG] Searching in tiposEvaluacion list:", tiposEvaluacion);
 
-			}  else { // Solo ejecutar el fallback si configColumna existe pero no tiene un RefAssessmentPurposeId válido
-				// Fallback: usar el primer tipo si configColumna no tiene un tipo de propósito válido
-				setEvaluacion(tiposEvaluacion[0].id.toString());
-				setDescripcion(configColumna.Description || '');
-				console.log(`[DEBUG ESTADO] No configColumna.RefAssessmentPurposeId found or valid.`);
-			}
-			// También establecer ponderación aquí si viene en configColumna
-			setPonderacion(configColumna.WeightPercent || 0);
-			} else {
-			  //Si configColumna es null (modal abierto para nueva columna)
-			  setDescripcion(''); // Limpiar descripción si es nueva columna
-			  setPonderacion(0); // Limpiar ponderación si es nueva columna
-			  // Limpiar OAs agregados si es nueva columna
-			  setOasAgregados([]);
-			  setNoInfluye(false); // No influye por defecto a false para nueva columna
-			  setTipoColumna(tipo?.toString() || '1'); // Usar el tipo inicial si existe
-			  // Si no hay configuración previa, usar el primer tipo disponible
-			  setEvaluacion(tiposEvaluacion[0].id.toString());
-				console.log(`[DEBUG ESTADO] Setting evaluacion from first tiposEvaluacion: ${tiposEvaluacion[0].id}`);
-			  console.log("[DEBUG] No configColumna - Initializing for new column.");
-			}
-		  }, [visible, tiposEvaluacion, configColumna]); // Dependencias: visible, tiposEvaluacion, configColumna
+            if (configColumna.RefAssessmentPurposeId && tiposEvaluacion.find(t => t.id == configColumna.RefAssessmentPurposeId)) {
+                setEvaluacion(configColumna.RefAssessmentPurposeId.toString());
+                console.log(`[DEBUG ESTADO] Setting evaluacion from configColumna: ${configColumna.RefAssessmentPurposeId}`);
+                setDescripcion(configColumna.Description || '');
+                setPonderacion(configColumna.WeightPercent || 0);
+            } else if (configColumna) {
+                setEvaluacion(tiposEvaluacion[0].id.toString());
+                setDescripcion(configColumna.Description || '');
+                console.log(`[DEBUG ESTADO] No configColumna.RefAssessmentPurposeId found or valid.`);
+                setPonderacion(configColumna.WeightPercent || 0);
+            }
+        }
+    }
+}, [visible, tiposEvaluacion, configColumna]);
 
-		  // Manejar el caso de tiposEvaluacion vacío
-		  useEffect(() => {
-			if (visible && tiposEvaluacion && tiposEvaluacion.length === 0) { setEvaluacion(''); }
-		  }, [visible, tiposEvaluacion]);
-		// Monitorear cambios en el estado evaluacion
-		useEffect(() => {
-		  console.log("[DEBUG ESTADO] evaluacion cambió a:", evaluacion, "tipo:", typeof evaluacion);
-		}, [evaluacion]);
+// Manejar el caso de tiposEvaluacion vacío
+useEffect(() => {
+    if (visible && tiposEvaluacion && tiposEvaluacion.length === 0) { 
+        setEvaluacion(''); 
+    }
+}, [visible, tiposEvaluacion]);
 
 
+	// Monitorear cambios en el estado evaluacion
+	useEffect(() => {
+		console.log("[DEBUG ESTADO] evaluacion cambió a:", evaluacion, "tipo:", typeof evaluacion);
+	}, [evaluacion]);
 
-		  useEffect(() => {
-		  if (!subnotas.length) return;
+	useEffect(() => {
+		if (!subnotas.length) return;
 
-		  const actualizados = subnotas.map(alumno => {
+		const actualizados = subnotas.map(alumno => {
 			const totalPeso = alumno.pesos.reduce((acc, peso) => acc + (isNaN(peso) ? 0 : peso), 0);
 			if (totalPeso === 0) return { ...alumno, promedio: 0 };
 
 			let suma = 0;
 			for (let i = 0; i < alumno.notas.length; i++) {
-			  const nota = parseFloat(alumno.notas[i]);
-			  const peso = parseFloat(alumno.pesos[i]);
-			  if (!isNaN(nota) && !isNaN(peso)) {
-				const parcial = parseFloat((nota * (peso / totalPeso)).toFixed(1));
-				suma += parcial;
-			  }
+				const nota = parseFloat(alumno.notas[i]);
+				const peso = parseFloat(alumno.pesos[i]);
+				if (!isNaN(nota) && !isNaN(peso)) {
+					const parcial = parseFloat((nota * (peso / totalPeso)).toFixed(1));
+					suma += parcial;
+				}
 			}
 
 			return { ...alumno, promedio: parseFloat(suma.toFixed(1)) };
-		  });
-		  setSubnotas(actualizados);
-		}, [JSON.stringify(subnotas)]);
-	
-		useEffect(() => {
-		  const pesosSonValidos = subnotas.length > 0 && pesosValidos();
-		  setValidacionPesos(pesosSonValidos);
-		}, [JSON.stringify(subnotas)]);
+		});
+		setSubnotas(actualizados);
+	}, [subnotas]);
 
-
-
-
-	
-
-
-        const abrirModalCambios = () => {
-		  setMostrarModalCambios(true);
-		};
-
-				
-		const cerrarModalCambios = () => {
-		  setMostrarModalCambios(false);
-		  setSubnotas([]); // Limpiar subnotas al cerrar modal
-		};
-
+	useEffect(() => {
+		const pesosSonValidos = subnotas.length > 0 && pesosValidos();
+		setValidacionPesos(pesosSonValidos);
+	}, [subnotas]);
 
   useEffect(() => {
     if (visible && cursoId && asignaturaId) {
@@ -1515,7 +1490,11 @@ const Notas = () => {
         const res = await axios.get('http://localhost:5000/api/notas/opciones-referencia');
        
         setEscalas(res.data.escalas);
-        setTiposEvaluacion(res.data.tiposEvaluacion);
+        setTiposEvaluacion(res.data.tiposEvaluacion.map(t => ({
+          ...t,
+          id: String(t.RefAssessmentPurposeId),
+          Description: t.AssessmentPurposeDescription || t.Description
+        })));
         window.tiposColumnaGlobal = res.data.tiposColumna;
         window.escalasGlobal = res.data.escalas;
         window.tiposEvaluacionGlobal = res.data.tiposEvaluacion;
