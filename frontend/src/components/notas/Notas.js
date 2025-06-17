@@ -211,36 +211,7 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 				setOasAgregados(configColumna.objetivos || []);
 			  }
 			}, [configColumna]);
- 
 
-
-
-
-		  useEffect(() => {
-		  if (!subnotas.length) return;
-
-		  const actualizados = subnotas.map(alumno => {
-			const totalPeso = alumno.pesos.reduce((acc, peso) => acc + (isNaN(peso) ? 0 : peso), 0);
-			if (totalPeso === 0) return { ...alumno, promedio: 0 };
-
-			let suma = 0;
-			for (let i = 0; i < alumno.notas.length; i++) {
-			  const nota = parseFloat(alumno.notas[i]);
-			  const peso = parseFloat(alumno.pesos[i]);
-			  if (!isNaN(nota) && !isNaN(peso)) {
-				const parcial = parseFloat((nota * (peso / totalPeso)).toFixed(1));
-				suma += parcial;
-			  }
-			}
-
-			return {
-			  ...alumno,
-			  promedio: parseFloat(suma.toFixed(1))
-			};
-		  });
-
-		  setSubnotas(actualizados);
-		}, [JSON.stringify(subnotas)]);
 
 		// CONSOLIDADO: useEffect único para manejar inicialización del dropdown evaluacion
 		useEffect(() => {
@@ -274,7 +245,6 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 
 			}
 			
-			else {
 				// Fallback: usar el primer tipo si configColumna no tiene un tipo de propósito válido
 				setEvaluacion(tiposEvaluacion[0].id.toString());
 				setDescripcion(configColumna.Description || '');
@@ -285,8 +255,7 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 				setDescripcion(''); // Limpiar descripción si es nueva columna
 			  // Si no hay configuración previa, usar el primer tipo disponible
 			  setEvaluacion(tiposEvaluacion[0].id.toString());
-			  setPonderacion(0); // Ponderación 0 para nueva columna
-			  console.log(`[DEBUG ESTADO] Setting evaluacion from first tiposEvaluacion: ${tiposEvaluacion[0].id}`);
+				console.log(`[DEBUG ESTADO] Setting evaluacion from first tiposEvaluacion: ${tiposEvaluacion[0].id}`);
 			  console.log("[DEBUG] No configColumna - Initializing for new column.");
 			}
 		  }
@@ -297,6 +266,29 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 		  console.log("[DEBUG ESTADO] evaluacion cambió a:", evaluacion, "tipo:", typeof evaluacion);
 		}, [evaluacion]);
 
+
+
+		  useEffect(() => {
+		  if (!subnotas.length) return;
+
+		  const actualizados = subnotas.map(alumno => {
+			const totalPeso = alumno.pesos.reduce((acc, peso) => acc + (isNaN(peso) ? 0 : peso), 0);
+			if (totalPeso === 0) return { ...alumno, promedio: 0 };
+
+			let suma = 0;
+			for (let i = 0; i < alumno.notas.length; i++) {
+			  const nota = parseFloat(alumno.notas[i]);
+			  const peso = parseFloat(alumno.pesos[i]);
+			  if (!isNaN(nota) && !isNaN(peso)) {
+				const parcial = parseFloat((nota * (peso / totalPeso)).toFixed(1));
+				suma += parcial;
+			  }
+			}
+
+			return { ...alumno, promedio: parseFloat(suma.toFixed(1)) };
+		  });
+		  setSubnotas(actualizados);
+		}, [JSON.stringify(subnotas)]);
 	
 		useEffect(() => {
 		  const pesosSonValidos = subnotas.length > 0 && pesosValidos();
@@ -1490,6 +1482,11 @@ const Notas = () => {
   const [configColumna, setConfigColumna] = useState(null);
   const [mostrarModalCambios, setMostrarModalCambios] = useState(false);
   const [tipoPendiente, setTipoPendiente] = useState(null); // ETAPA1: tipo solicitado antes de confirmar
+
+   useEffect(() => {
+    console.log("[DEBUG PADRE] configColumna updated:", configColumna);
+  }, [configColumna]);
+
 
 
   useEffect(() => {
