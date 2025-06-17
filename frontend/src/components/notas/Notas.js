@@ -259,7 +259,7 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 				console.log(`[DEBUG ESTADO] Setting evaluacion from first tiposEvaluacion: ${tiposEvaluacion[0].id}`);
 			  console.log("[DEBUG] No configColumna - Initializing for new column.");
 			}
-		  }}, [visible, tiposEvaluacion, configColumna]); // Dependencias: visible, tiposEvaluacion, configColumna
+		  }, [visible, tiposEvaluacion, configColumna]); // Dependencias: visible, tiposEvaluacion, configColumna
 
 		// Monitorear cambios en el estado evaluacion
 		useEffect(() => {
