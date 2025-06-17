@@ -247,8 +247,8 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 		  // Solo ejecutar cuando el modal está visible y hay tipos de evaluación disponibles
 		  if (visible && tiposEvaluacion && tiposEvaluacion.length > 0) {
 			// CONSOLIDADO: Aplicar TODA la configuración aquí en un solo lugar
+			console.log("[DEBUG] Effect for initializing evaluacion state triggered.");
 			if (configColumna) {
-			  setDescripcion(configColumna.Description || '');
 			  setFechaEvaluacion(configColumna.PublishedDate ? dayjs(configColumna.PublishedDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'));
 			  setEscala(configColumna.RefScoreMetricTypeId?.toString() || '');
 			  setTipoColumna(configColumna.RefAssessmentSubtestTypeId?.toString() || tipo?.toString() || '1');
@@ -256,11 +256,13 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 			  setOasAgregados(configColumna.objetivos || []);
 			  
 			  // Configurar evaluacion desde configColumna.  Cambio16_06_2025
-		  const tipoEvalValido = tiposEvaluacion.find(t => t.id == configColumna.RefAssessmentTypeId);
-			// === CORRECCIÓN AQUÍ: Usar RefAssessmentPurposeId ===
+			  console.log(`[DEBUG] configColumna:`, configColumna);
+			  console.log(`[DEBUG] tiposEvaluacion list:`, tiposEvaluacion);
+			  console.log(`[DEBUG] configColumna.RefAssessmentPurposeId: ${configColumna.RefAssessmentPurposeId}`);
 			if (configColumna.RefAssessmentPurposeId && tiposEvaluacion.find(t => t.id == configColumna.RefAssessmentPurposeId)) {
 			  setEvaluacion(configColumna.RefAssessmentPurposeId.toString());
 			  console.log(`[DEBUG ESTADO] Setting evaluacion from configColumna: ${configColumna.RefAssessmentPurposeId}`);
+			  setDescripcion(configColumna.Description || '');
 				
 			// También establecer ponderación aquí si viene en configColumna
 			setPonderacion(configColumna.WeightPercent || 0);
@@ -268,12 +270,14 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 			}
 			
 			else {
+				// Fallback: usar el primer tipo si configColumna no tiene un tipo de propósito válido
+				setEvaluacion(tiposEvaluacion[0].id.toString());
+				setDescripcion(configColumna.Description || '');
 				console.log(`[DEBUG ESTADO] No configColumna.RefAssessmentPurposeId found or valid.`);
 			}
-
-			  
-			  
 			} else {
+				//Si configColumna es null (modal abierto para nueva columna)
+				setDescripcion(''); // Limpiar descripción si es nueva columna
 			  // Si no hay configuración previa, usar el primer tipo disponible
 			  setEvaluacion(tiposEvaluacion[0].id.toString());
 			  console.log(`[DEBUG ESTADO] Setting evaluacion from first tiposEvaluacion: ${tiposEvaluacion[0].id}`);
