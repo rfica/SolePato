@@ -244,10 +244,14 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 
 		// CONSOLIDADO: useEffect único para manejar inicialización del dropdown evaluacion
 		useEffect(() => {
-		  // Solo ejecutar cuando el modal está visible y hay tipos de evaluación disponibles
+		  // Solo ejecutar cuando el modal está visible, hay tipos de evaluación disponibles
+		  // y configColumna ha sido cargado (configColumna puede ser null si es nueva columna)
 		  if (visible && tiposEvaluacion && tiposEvaluacion.length > 0) {
 			// CONSOLIDADO: Aplicar TODA la configuración aquí en un solo lugar
 			console.log("[DEBUG] Effect for initializing evaluacion state triggered.");
+			console.log("[DEBUG] visible:", visible);
+			console.log("[DEBUG] tiposEvaluacion length:", tiposEvaluacion.length);
+			console.log("[DEBUG] configColumna present:", !!configColumna);
 			if (configColumna) {
 			  setFechaEvaluacion(configColumna.PublishedDate ? dayjs(configColumna.PublishedDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'));
 			  setEscala(configColumna.RefScoreMetricTypeId?.toString() || '');
@@ -256,9 +260,10 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 			  setOasAgregados(configColumna.objetivos || []);
 			  
 			  // Configurar evaluacion desde configColumna.  Cambio16_06_2025
-			  console.log(`[DEBUG] configColumna:`, configColumna);
-			  console.log(`[DEBUG] tiposEvaluacion list:`, tiposEvaluacion);
-			  console.log(`[DEBUG] configColumna.RefAssessmentPurposeId: ${configColumna.RefAssessmentPurposeId}`);
+			  console.log("[DEBUG] Processing existing configColumna...");
+			  console.log("[DEBUG] configColumna.RefAssessmentPurposeId:", configColumna.RefAssessmentPurposeId);
+			  console.log("[DEBUG] Searching in tiposEvaluacion list:", tiposEvaluacion);
+
 			if (configColumna.RefAssessmentPurposeId && tiposEvaluacion.find(t => t.id == configColumna.RefAssessmentPurposeId)) {
 			  setEvaluacion(configColumna.RefAssessmentPurposeId.toString());
 			  console.log(`[DEBUG ESTADO] Setting evaluacion from configColumna: ${configColumna.RefAssessmentPurposeId}`);
@@ -280,10 +285,12 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 				setDescripcion(''); // Limpiar descripción si es nueva columna
 			  // Si no hay configuración previa, usar el primer tipo disponible
 			  setEvaluacion(tiposEvaluacion[0].id.toString());
+			  setPonderacion(0); // Ponderación 0 para nueva columna
 			  console.log(`[DEBUG ESTADO] Setting evaluacion from first tiposEvaluacion: ${tiposEvaluacion[0].id}`);
+			  console.log("[DEBUG] No configColumna - Initializing for new column.");
 			}
-		  }		  
-		}, [visible, tiposEvaluacion, configColumna]);
+		  }
+		}, [visible, tiposEvaluacion, configColumna]); // Dependencias: visible, tiposEvaluacion, configColumna
 
 		// Monitorear cambios en el estado evaluacion
 		useEffect(() => {
