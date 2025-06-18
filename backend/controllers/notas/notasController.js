@@ -205,9 +205,9 @@ exports.getEstudiantesPorCurso = async (req, res) => {
 
 
 
-// POST /api/notas/guardar  (aun no esta probada)
+// POST /api/notas/guardar
 exports.guardarNotas = async (req, res) => {
-  const notas = req.body;
+  const { notas } = req.body;
 
   if (!Array.isArray(notas) || notas.length === 0) {
     return res.status(400).json({ error: 'El payload debe contener al menos una nota.' });
@@ -215,85 +215,161 @@ exports.guardarNotas = async (req, res) => {
 
   try {
     const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    try {
+      console.log('[DEBUG BACKEND] Recibidas notas para guardar:', notas.length);
 
     for (const nota of notas) {
       const {
         assessmentId,
-        personId,
-        courseSectionOrgId,
-        nota: scoreValue
+          columna,
+          organizationPersonRoleId,
+          scoreValue,
+          fecha
       } = nota;
 
-      // 1. Verificar si ya existe registro en AssessmentRegistration
-      const regResult = await pool.request()
+        if (!assessmentId || !organizationPersonRoleId) {
+          console.warn('[WARN] Nota sin assessmentId o organizationPersonRoleId:', nota);
+          continue;
+        }
+
+        // 1. Obtener el personId desde organizationPersonRoleId
+        const personResult = await new sql.Request(transaction)
+          .input('organizationPersonRoleId', sql.Int, organizationPersonRoleId)
+          .query(`
+            SELECT PersonId, OrganizationId 
+            FROM OrganizationPersonRole 
+            WHERE OrganizationPersonRoleId = @organizationPersonRoleId
+          `);
+
+        if (personResult.recordset.length === 0) {
+          console.warn(`[WARN] No se encontró PersonId para OrganizationPersonRoleId: ${organizationPersonRoleId}`);
+          continue;
+        }
+
+        const personId = personResult.recordset[0].PersonId;
+        const cursoId = personResult.recordset[0].OrganizationId;
+        
+        // 2. Obtener AssessmentAdministrationId
+        const adminResult = await new sql.Request(transaction)
         .input('assessmentId', sql.Int, assessmentId)
+          .query(`
+            SELECT TOP 1 aa.AssessmentAdministrationId
+            FROM Assessment_AssessmentAdministration aa
+            WHERE aa.AssessmentId = @assessmentId
+          `);
+
+        if (adminResult.recordset.length === 0) {
+          console.warn(`[WARN] No se encontró AssessmentAdministrationId para AssessmentId: ${assessmentId}`);
+          continue;
+        }
+
+        const assessmentAdministrationId = adminResult.recordset[0].AssessmentAdministrationId;
+
+        // 3. Verificar si ya existe registro en AssessmentRegistration
+        const regResult = await new sql.Request(transaction)
+          .input('assessmentAdministrationId', sql.Int, assessmentAdministrationId)
         .input('personId', sql.Int, personId)
         .query(`
           SELECT TOP 1 AssessmentRegistrationId
           FROM AssessmentRegistration
-          WHERE PersonId = @personId AND CourseSectionOrganizationId = @courseSectionOrgId
+            WHERE AssessmentAdministrationId = @assessmentAdministrationId
+            AND PersonId = @personId
         `);
 
       let assessmentRegistrationId;
 
-      if (regResult.recordset.length > 0) {
-        assessmentRegistrationId = regResult.recordset[0].AssessmentRegistrationId;
-      } else {
-        // Crear registro de inscripción
-        const regInsert = await pool.request()
-          .input('assessmentId', sql.Int, assessmentId)
+      if (regResult.recordset.length === 0) {
+        // No existe, crear registro
+          const insertResult = await new sql.Request(transaction)
+            .input('assessmentAdministrationId', sql.Int, assessmentAdministrationId)
           .input('personId', sql.Int, personId)
-          .input('courseSectionOrgId', sql.Int, courseSectionOrgId)
+            .input('cursoId', sql.Int, cursoId)
+            .input('fecha', sql.Date, fecha || new Date())
           .query(`
-            INSERT INTO AssessmentRegistration (AssessmentAdministrationId, PersonId, CourseSectionOrganizationId, OrganizationId)
+              INSERT INTO AssessmentRegistration (
+                AssessmentAdministrationId, 
+                PersonId, 
+                OrganizationId,
+                CourseSectionOrganizationId, 
+                CreationDate
+              )
             OUTPUT INSERTED.AssessmentRegistrationId
-            VALUES (NULL, @personId, @courseSectionOrgId, NULL)
+              VALUES (
+                @assessmentAdministrationId, 
+                @personId, 
+                @cursoId,
+                NULL, 
+                @fecha
+              )
           `);
 
-        assessmentRegistrationId = regInsert.recordset[0].AssessmentRegistrationId;
+        assessmentRegistrationId = insertResult.recordset[0].AssessmentRegistrationId;
+          console.log(`[DEBUG] Creado nuevo AssessmentRegistrationId: ${assessmentRegistrationId}`);
+      } else {
+        assessmentRegistrationId = regResult.recordset[0].AssessmentRegistrationId;
+          console.log(`[DEBUG] Usando AssessmentRegistrationId existente: ${assessmentRegistrationId}`);
       }
 
-      // 2. Verificar si ya existe resultado
-      const resultCheck = await pool.request()
+        // 4. Verificar si ya existe resultado
+        const resultCheck = await new sql.Request(transaction)
         .input('assessmentRegistrationId', sql.Int, assessmentRegistrationId)
-        .input('assessmentId', sql.Int, assessmentId)
         .query(`
           SELECT TOP 1 AssessmentResultId
           FROM AssessmentResult
-          WHERE AssessmentRegistrationId = @assessmentRegistrationId AND AssessmentId = @assessmentId
+            WHERE AssessmentRegistrationId = @assessmentRegistrationId
         `);
 
       if (resultCheck.recordset.length > 0) {
         // Actualizar
-        await pool.request()
+          await new sql.Request(transaction)
           .input('assessmentRegistrationId', sql.Int, assessmentRegistrationId)
-          .input('assessmentId', sql.Int, assessmentId)
-          .input('scoreValue', sql.NVarChar, scoreValue)
+            .input('scoreValue', sql.Decimal(4, 1), parseFloat(scoreValue))
+            .input('fecha', sql.Date, fecha || new Date())
           .query(`
             UPDATE AssessmentResult
-            SET ScoreValue = @scoreValue
-            WHERE AssessmentRegistrationId = @assessmentRegistrationId AND AssessmentId = @assessmentId
+              SET ScoreValue = @scoreValue,
+                  DateCreated = @fecha
+              WHERE AssessmentRegistrationId = @assessmentRegistrationId
           `);
+          console.log(`[DEBUG] Actualizada nota para AssessmentRegistrationId: ${assessmentRegistrationId}, valor: ${scoreValue}`);
       } else {
         // Insertar
-        await pool.request()
+          await new sql.Request(transaction)
           .input('assessmentRegistrationId', sql.Int, assessmentRegistrationId)
-          .input('assessmentId', sql.Int, assessmentId)
-          .input('scoreValue', sql.NVarChar, scoreValue)
+            .input('scoreValue', sql.Decimal(4, 1), parseFloat(scoreValue))
+            .input('fecha', sql.Date, fecha || new Date())
           .query(`
-            INSERT INTO AssessmentResult (AssessmentRegistrationId, AssessmentSubtestId, AssessmentId, ScoreValue)
-            VALUES (@assessmentRegistrationId, NULL, @assessmentId, @scoreValue)
-          `);
+              INSERT INTO AssessmentResult (
+                AssessmentRegistrationId, 
+                ScoreValue,
+                DateCreated
+              )
+              VALUES (
+                @assessmentRegistrationId, 
+                @scoreValue,
+                @fecha
+              )
+            `);
+          console.log(`[DEBUG] Insertada nueva nota para AssessmentRegistrationId: ${assessmentRegistrationId}, valor: ${scoreValue}`);
+        }
       }
-    }
 
+      await transaction.commit();
     res.status(200).json({ message: 'Notas guardadas exitosamente.' });
 
   } catch (error) {
-    console.error('Error al guardar notas:', error);
-    res.status(500).json({ error: 'Error al guardar notas.' });
+      await transaction.rollback();
+      throw error;
+    }
+  } catch (error) {
+    console.error('[ERROR] Error al guardar notas:', error);
+    res.status(500).json({ error: 'Error al guardar notas: ' + error.message });
   }
 };
+
 
 
 // GET /api/notas/leer
@@ -800,16 +876,38 @@ exports.configurarColumna = async (req, res) => {
     usuarioId
   } = req.body;
 
-  if (!assessmentId || !escalaId || !tipoNotaId) {
-    console.log("[BACKEND] Faltan campos requeridos:", { assessmentId, escalaId, tipoNotaId });
-    return res.status(400).json({ error: 'Faltan campos requeridos.' });
-  }
-
   try {
     const pool = await poolPromise;
+    let actualAssessmentId = assessmentId;
+
+    // Si no tenemos assessmentId pero sí tenemos identifier, buscamos el assessmentId
+    if (!actualAssessmentId && identifier) {
+      console.log(`[BACKEND] Buscando assessmentId para identifier: ${identifier}`);
+      const findResult = await pool.request()
+        .input('identifier', sql.NVarChar, identifier)
+        .query(`
+          SELECT TOP 1 AssessmentId
+          FROM Assessment
+          WHERE Identifier = @identifier
+          ORDER BY AssessmentId DESC
+        `);
+
+      if (findResult.recordset.length > 0) {
+        actualAssessmentId = findResult.recordset[0].AssessmentId;
+        console.log(`[BACKEND] AssessmentId encontrado: ${actualAssessmentId}`);
+      } else {
+        console.log(`[BACKEND] No se encontró AssessmentId para identifier: ${identifier}`);
+        return res.status(404).json({ error: `No se encontró assessment para el identificador ${identifier}.` });
+      }
+    }
+
+    if (!actualAssessmentId || !escalaId || !tipoNotaId) {
+      console.log("[BACKEND] Faltan campos requeridos:", { assessmentId: actualAssessmentId, escalaId, tipoNotaId });
+      return res.status(400).json({ error: 'Faltan campos requeridos.' });
+    }
 
     const result = await pool.request()
-      .input('assessmentId', sql.Int, assessmentId)
+      .input('assessmentId', sql.Int, actualAssessmentId)
       .query(`
         SELECT AssessmentId, Identifier, Title, Objective AS Description,
                RefAssessmentTypeId, RefAssessmentSubtestTypeId,
@@ -901,7 +999,7 @@ exports.configurarColumna = async (req, res) => {
         await pool.request()
           .input('Modulo', sql.NVarChar(50), 'notas')
           .input('TablaAfectada', sql.NVarChar(100), 'Assessment')
-          .input('RegistroId', sql.Int, assessmentId)
+          .input('RegistroId', sql.Int, actualAssessmentId)
           .input('CampoAfectado', sql.NVarChar(100), campo)
           .input('CampoAfectadoTexto', sql.NVarChar(100), campoTexto)
           .input('ValorAnterior', sql.NVarChar(sql.MAX), anterior)
@@ -924,7 +1022,7 @@ exports.configurarColumna = async (req, res) => {
 
     // ================= ACTUALIZACIÓN =================
     await pool.request()
-      .input('assessmentId', sql.Int, assessmentId)
+      .input('assessmentId', sql.Int, actualAssessmentId)
       .input('title', sql.VarChar(100), title)
       .input('descripcion', sql.VarChar(sql.MAX), descripcion)
       .input('tipoEvaluacionId', sql.Int, tipoEvaluacionId)
@@ -948,13 +1046,13 @@ exports.configurarColumna = async (req, res) => {
 
     // ================= OA =================
     await pool.request()
-      .input('assessmentId', sql.Int, assessmentId)
+      .input('assessmentId', sql.Int, actualAssessmentId)
       .query(`DELETE FROM AssessmentObjective WHERE AssessmentId = @assessmentId`);
 
     if (objetivos && objetivos.length > 0) {
       for (const oaId of objetivos) {
         await pool.request()
-          .input('assessmentId', sql.Int, assessmentId)
+          .input('assessmentId', sql.Int, actualAssessmentId)
           .input('oaId', sql.Int, oaId)
           .input('usuarioId', sql.Int, usuarioId)
           .query(`
@@ -1001,17 +1099,22 @@ exports.obtenerConfiguracionColumna = async (req, res) => {
           A.AssessmentId,
           A.Identifier,
           A.Title,
-          A.Objective AS Description,                       -- ⚠️ alias para mantener compatibilidad
-          A.RefAssessmentTypeId AS RefAssessmentPurposeId,  -- ⚠️ como espera el frontend
-          RAT.Description AS AssessmentPurposeDescription,  -- ✅ para mostrar "Formativa", "Sumativa", etc.
+          A.Objective AS Description,
+          A.RefAssessmentTypeId,
+          A.RefAssessmentPurposeId,
+          RAT.Description AS AssessmentTypeDescription,
+          RAST.Description AS AssessmentSubtestTypeDescription,
+          RSMT.Description AS ScoreMetricTypeDescription,
           A.RefAssessmentSubtestTypeId,
           A.RefScoreMetricTypeId,
           A.WeightPercent,
           A.VisualNoteType,
           A.Tier,
-          A.AssessmentRevisionDate AS PublishedDate         -- ⚠️ alias para compatibilidad frontend
+          CONVERT(varchar, A.AssessmentRevisionDate, 23) AS PublishedDate
         FROM Assessment A
         LEFT JOIN RefAssessmentType RAT ON A.RefAssessmentTypeId = RAT.RefAssessmentTypeId
+        LEFT JOIN RefAssessmentSubtestType RAST ON A.RefAssessmentSubtestTypeId = RAST.RefAssessmentSubtestTypeId
+        LEFT JOIN RefScoreMetricType RSMT ON A.RefScoreMetricTypeId = RSMT.RefScoreMetricTypeId
         WHERE A.AssessmentId = @assessmentId
       `);
 
@@ -1287,97 +1390,399 @@ exports.guardarNotasAcumuladas = async (req, res) => {
 
 */
 
-// POST /api/notas/notas-acumuladas
-exports.guardarNotasAcumuladas = async (req, res) => {
-  try {
-    const { assessmentId, fecha, subnotas } = req.body;
 
-    if (!assessmentId || !fecha || !Array.isArray(subnotas)) {
-      return res.status(400).json({ error: 'Faltan datos requeridos' });
+
+// POST /api/notas/notas-acumuladas/guardar
+exports.guardarNotasAcumuladas = async (req, res) => {
+  const pool = await poolPromise;
+  const transaction = new sql.Transaction(pool);
+  let notasInsertadas = 0;
+  let promediosInsertados = 0;
+  let registrosOmitidos = 0;
+  let notasPrincipalesActualizadas = 0;
+  let registrosCreados = 0;
+
+  try {
+    const { assessmentId, subnotas, fecha, cursoId, asignaturaId } = req.body;
+
+    console.log('[DEBUG] Recibida petición guardarNotasAcumuladas:', {
+      assessmentId,
+      fecha,
+      cursoId,
+      asignaturaId,
+      subnotas: Array.isArray(subnotas) ? subnotas.length : 'no es array'
+    });
+
+    if (!assessmentId || !Array.isArray(subnotas) || !cursoId || !asignaturaId) {
+      return res.status(400).json({ error: 'Parámetros inválidos' });
     }
 
-    const pool = await poolPromise;
-    const transaction = new sql.Transaction(pool);
     await transaction.begin();
 
-    console.log(`[GUARDAR_ACUMULATIVA] Iniciando proceso para assessmentId: ${assessmentId}`);
-    console.log(`[GUARDAR_ACUMULATIVA] Fecha de evaluación: ${fecha}`);
-    console.log(`[GUARDAR_ACUMULATIVA] Total subnotas recibidas: ${subnotas.length}`);
+    // Obtener el AssessmentAdministrationId relacionado con este assessmentId
+    const adminResult = await new sql.Request(transaction)
+      .input('assessmentId', sql.Int, assessmentId)
+      .query(`
+        SELECT TOP 1 aa.AssessmentAdministrationId
+        FROM Assessment_AssessmentAdministration aa
+        WHERE aa.AssessmentId = @assessmentId
+      `);
 
+    let assessmentAdministrationId;
+
+    if (adminResult.recordset.length === 0) {
+      // Si no existe AssessmentAdministration, crearlo
+      console.log(`[GUARDAR_ACUMULATIVA] No se encontró AssessmentAdministrationId, creando uno nuevo`);
+      
+      const insertAdminResult = await new sql.Request(transaction)
+        .input('assessmentId', sql.Int, assessmentId)
+        .input('fecha', sql.Date, fecha || new Date())
+        .query(`
+          INSERT INTO AssessmentAdministration (AdministrationDate)
+          OUTPUT INSERTED.AssessmentAdministrationId
+          VALUES (@fecha)
+        `);
+        
+      if (insertAdminResult.recordset.length > 0) {
+        assessmentAdministrationId = insertAdminResult.recordset[0].AssessmentAdministrationId;
+        
+        // Crear la relación Assessment_AssessmentAdministration
+        await new sql.Request(transaction)
+          .input('assessmentId', sql.Int, assessmentId)
+          .input('adminId', sql.Int, assessmentAdministrationId)
+          .query(`
+            INSERT INTO Assessment_AssessmentAdministration (AssessmentId, AssessmentAdministrationId)
+            VALUES (@assessmentId, @adminId)
+          `);
+          
+        console.log(`[GUARDAR_ACUMULATIVA] Creado nuevo AssessmentAdministrationId: ${assessmentAdministrationId}`);
+      } else {
+        await transaction.rollback();
+        return res.status(500).json({ error: 'No se pudo crear AssessmentAdministration' });
+      }
+    } else {
+      assessmentAdministrationId = adminResult.recordset[0].AssessmentAdministrationId;
+    }
+    
+    console.log(`[GUARDAR_ACUMULATIVA] AssessmentAdministrationId: ${assessmentAdministrationId}`);
+
+    // Obtener todos los AssessmentSubtestId relacionados con este assessmentId
+    const subtestResult = await new sql.Request(transaction)
+      .input('assessmentId', sql.Int, assessmentId)
+      .query(`
+        SELECT ast.AssessmentSubtestId, ast.Identifier
+        FROM AssessmentSubtest ast
+        INNER JOIN AssessmentForm af ON ast.AssessmentFormId = af.AssessmentFormId
+        WHERE af.AssessmentId = @assessmentId
+        ORDER BY ast.AssessmentSubtestId
+      `);
+        
+    let subtestIds = subtestResult.recordset.map(r => r.AssessmentSubtestId);
+    console.log(`[DEBUG] AssessmentSubtestIds disponibles:`, subtestIds);
+    console.log(`[DEBUG] Detalles de subtests:`, JSON.stringify(subtestResult.recordset));
+    
+    let assessmentFormId;
+    
+    if (subtestIds.length === 0) {
+      // Si no hay subtests, primero verificar si existe AssessmentForm
+      const formResult = await new sql.Request(transaction)
+        .input('assessmentId', sql.Int, assessmentId)
+        .query(`
+          SELECT TOP 1 AssessmentFormId
+          FROM AssessmentForm
+          WHERE AssessmentId = @assessmentId
+        `);
+        
+      if (formResult.recordset.length > 0) {
+        assessmentFormId = formResult.recordset[0].AssessmentFormId;
+        console.log(`[GUARDAR_ACUMULATIVA] AssessmentFormId existente: ${assessmentFormId}`);
+      } else {
+        // Crear nuevo AssessmentForm - sin FormVersion para evitar el error
+        try {
+          const insertFormResult = await new sql.Request(transaction)
+            .input('assessmentId', sql.Int, assessmentId)
+            .query(`
+              INSERT INTO AssessmentForm (AssessmentId)
+              OUTPUT INSERTED.AssessmentFormId
+              VALUES (@assessmentId)
+            `);
+            
+          if (insertFormResult.recordset.length > 0) {
+            assessmentFormId = insertFormResult.recordset[0].AssessmentFormId;
+            console.log(`[GUARDAR_ACUMULATIVA] Creado nuevo AssessmentFormId: ${assessmentFormId}`);
+          } else {
+            await transaction.rollback();
+            return res.status(500).json({ error: 'No se pudo crear AssessmentForm' });
+          }
+        } catch (formError) {
+          console.error('[GUARDAR_ACUMULATIVA][ERROR] Error al crear AssessmentForm:', formError);
+          await transaction.rollback();
+          return res.status(500).json({ error: 'Error al crear AssessmentForm: ' + formError.message });
+        }
+      }
+      
+      // Crear subtests para las subnotas (mínimo 2)
+      const cantidadSubnotas = Math.max(2, subnotas[0]?.notas?.length || 2);
+      console.log(`[GUARDAR_ACUMULATIVA] Creando ${cantidadSubnotas} subtests`);
+      
+      subtestIds = [];
+      
+      for (let i = 1; i <= cantidadSubnotas; i++) {
+        const insertSubtestResult = await new sql.Request(transaction)
+          .input('formId', sql.Int, assessmentFormId)
+          .input('identifier', sql.NVarChar, `N1.${i}`)
+          .input('title', sql.NVarChar, `Subnota ${i}`)
+          .input('tipoId', sql.Int, 1) // Tipo directo para las subnotas
+          .query(`
+            INSERT INTO AssessmentSubtest (
+              AssessmentFormId, 
+              Identifier, 
+              Title,
+              RefAssessmentSubtestTypeId
+            )
+            OUTPUT INSERTED.AssessmentSubtestId
+            VALUES (
+              @formId,
+              @identifier,
+              @title,
+              @tipoId
+            )
+          `);
+          
+        if (insertSubtestResult.recordset.length > 0) {
+          const subtestId = insertSubtestResult.recordset[0].AssessmentSubtestId;
+          subtestIds.push(subtestId);
+          console.log(`[GUARDAR_ACUMULATIVA] Creado subtest ${i} con ID: ${subtestId}`);
+        }
+      }
+      
+      if (subtestIds.length === 0) {
+        await transaction.rollback();
+        return res.status(404).json({ error: 'No se pudieron crear subnotas (AssessmentSubtest) para el assessmentId proporcionado' });
+      }
+    }
+
+    // Procesar cada alumno
     for (const alumno of subnotas) {
-      const registrationId = alumno.assessmentRegistrationId;
+      let registrationId = alumno.assessmentRegistrationId;
+      
+      console.log(`[DEBUG] Procesando alumno:`, {
+        assessmentRegistrationId: registrationId,
+        organizationPersonRoleId: alumno.organizationPersonRoleId,
+        notas: alumno.notas
+      });
 
-      if (!registrationId || isNaN(registrationId)) {
-        console.warn(`[GUARDAR_ACUMULATIVA] Registro omitido por ID inválido:`, registrationId);
-        continue;
+      // Si no tiene registrationId, intentar crearlo
+      if (!registrationId) {
+        try {
+          if (alumno.organizationPersonRoleId) {
+            // Obtener el PersonId del OrganizationPersonRoleId
+            const personResult = await new sql.Request(transaction)
+              .input('organizationPersonRoleId', sql.Int, alumno.organizationPersonRoleId)
+              .query(`
+                SELECT PersonId 
+                FROM OrganizationPersonRole 
+                WHERE OrganizationPersonRoleId = @organizationPersonRoleId
+              `);
+
+            if (personResult.recordset.length > 0) {
+              const personId = personResult.recordset[0].PersonId;
+
+              // Verificar si ya existe un registro para esta persona en esta administración
+              const checkResult = await new sql.Request(transaction)
+                .input('assessmentAdministrationId', sql.Int, assessmentAdministrationId)
+                .input('personId', sql.Int, personId)
+                .query(`
+                  SELECT AssessmentRegistrationId 
+                  FROM AssessmentRegistration 
+                  WHERE AssessmentAdministrationId = @assessmentAdministrationId 
+                    AND PersonId = @personId
+                `);
+
+              if (checkResult.recordset.length > 0) {
+                registrationId = checkResult.recordset[0].AssessmentRegistrationId;
+                console.log(`[GUARDAR_ACUMULATIVA] AssessmentRegistrationId existente encontrado: ${registrationId}`);
+              } else {
+                // Crear un nuevo registro de inscripción
+                const insertResult = await new sql.Request(transaction)
+                  .input('assessmentAdministrationId', sql.Int, assessmentAdministrationId)
+                  .input('personId', sql.Int, personId)
+                  .input('cursoId', sql.Int, cursoId)
+                  .input('asignaturaId', sql.Int, asignaturaId)
+                  .query(`
+                    INSERT INTO AssessmentRegistration (
+                      AssessmentAdministrationId, 
+                      PersonId,
+                      OrganizationId,
+                      CourseSectionOrganizationId
+                    ) 
+                    OUTPUT INSERTED.AssessmentRegistrationId
+                    VALUES (
+                      @assessmentAdministrationId,
+                      @personId,
+                      @cursoId,
+                      @asignaturaId
+                    )
+                  `);
+                  
+                if (insertResult.recordset.length > 0) {
+                  registrationId = insertResult.recordset[0].AssessmentRegistrationId;
+                  console.log(`[GUARDAR_ACUMULATIVA] Creado nuevo AssessmentRegistrationId: ${registrationId}`);
+                  registrosCreados++;
+                } else {
+                  console.error(`[ERROR] No se pudo crear AssessmentRegistration para PersonId: ${personId}`);
+                }
+              }
+            } else {
+              console.error(`[ERROR] No se encontró PersonId para OrganizationPersonRoleId: ${alumno.organizationPersonRoleId}`);
+            }
+          }
+        } catch (error) {
+          console.error(`[ERROR] Error al procesar estudiante:`, error);
+        }
       }
 
-      // Eliminar notas previas de esta columna
+      if (!registrationId || isNaN(registrationId)) {
+        console.warn(`[GUARDAR_ACUMULATIVA] Registro omitido por ID inválido:`, alumno);
+        registrosOmitidos++;
+        continue;
+      }
+      
+      // Verificar si el registro existe
+      const checkRegResult = await new sql.Request(transaction)
+        .input('regId', sql.Int, registrationId)
+        .query('SELECT AssessmentRegistrationId FROM AssessmentRegistration WHERE AssessmentRegistrationId = @regId');
+        
+      if (checkRegResult.recordset.length === 0) {
+        console.error(`[ERROR] El AssessmentRegistrationId ${registrationId} no existe`);
+        registrosOmitidos++;
+        continue; // Saltar este registro y continuar con el siguiente
+      }
+
+      // PRIMERO: Eliminar TODAS las notas previas relacionadas con este registro y estos subtests
+      // Esto evitará duplicados
       await new sql.Request(transaction)
         .input('AssessmentRegistrationId', sql.Int, registrationId)
         .input('AssessmentId', sql.Int, assessmentId)
         .query(`
-          DELETE FROM AssessmentResult
+          DELETE FROM AssessmentResult 
           WHERE AssessmentRegistrationId = @AssessmentRegistrationId
-            AND AssessmentId = @AssessmentId
+          AND AssessmentSubtestId IN (
+            SELECT ast.AssessmentSubtestId 
+            FROM AssessmentSubtest ast
+            INNER JOIN AssessmentForm af ON ast.AssessmentFormId = af.AssessmentFormId
+            WHERE af.AssessmentId = @AssessmentId
+          )
         `);
 
+      console.log(`[GUARDAR_ACUMULATIVA] Notas acumulativas previas eliminadas para registrationId: ${registrationId}`);
+
       // Insertar subnotas
+      let notasValidas = 0;
+      let sumaNotas = 0;
+      
       if (Array.isArray(alumno.notas)) {
-        for (let i = 0; i < alumno.notas.length; i++) {
+        console.log(`[DEBUG] Notas a insertar para ${registrationId}:`, alumno.notas);
+        console.log(`[DEBUG] Usando subtestIds:`, subtestIds);
+        
+        for (let i = 0; i < alumno.notas.length && i < subtestIds.length; i++) {
           const nota = alumno.notas[i];
+          const subtestId = subtestIds[i];
+          console.log(`[DEBUG] Procesando nota[${i}]: ${nota}, tipo: ${typeof nota}, para subtestId: ${subtestId}`);
 
-          if (nota !== null && nota !== undefined && !isNaN(nota)) {
-            const notaRedondeada = Math.round(nota * 10) / 10;
+          if (nota !== null && nota !== undefined && !isNaN(parseFloat(nota))) {
+            const notaRedondeada = Math.round(parseFloat(nota) * 10) / 10;
+            console.log(`[DEBUG] Insertando subnota ${i} con valor: ${notaRedondeada} (original: ${nota}) para subtestId: ${subtestId}`);
 
-            await new sql.Request(transaction)
-              .input('RegId', sql.Int, registrationId)
-              .input('AssessmentId', sql.Int, assessmentId)
-              .input('Nota', sql.Decimal(4, 1), notaRedondeada)
-              .input('Fecha', sql.DateTime, fecha)
-              .query(`
-                INSERT INTO AssessmentResult
-                (AssessmentRegistrationId, AssessmentId, ScoreValue, IsAverage, DateCreated)
-                VALUES (@RegId, @AssessmentId, @Nota, 0, @Fecha)
-              `);
-
-            console.log(`[GUARDAR_ACUMULATIVA] Subnota insertada para ${registrationId} - nota[${i}]: ${notaRedondeada}`);
+            try {
+              // Insertar nuevo registro - ELIMINADO DateCreated de la inserción
+              await new sql.Request(transaction)
+                .input('RegId', sql.Int, registrationId)
+                .input('SubtestId', sql.Int, subtestId)
+                .input('Nota', sql.Decimal(4, 1), notaRedondeada)
+                .query(`
+                  INSERT INTO AssessmentResult
+                  (AssessmentRegistrationId, AssessmentSubtestId, ScoreValue, IsAverage)
+                  VALUES (@RegId, @SubtestId, @Nota, 0)
+                `);
+                
+              console.log(`[GUARDAR_ACUMULATIVA] Subnota insertada para ${registrationId} - nota[${i}]: ${notaRedondeada}, subtestId: ${subtestId}`);
+              notasInsertadas++;
+              notasValidas++;
+              sumaNotas += notaRedondeada;
+            } catch (insertError) {
+              console.error(`[ERROR] Error al insertar subnota ${i}:`, insertError);
+            }
           } else {
             console.warn(`[GUARDAR_ACUMULATIVA] Nota inválida omitida en alumno ${registrationId}, índice ${i}:`, nota);
           }
         }
       }
 
-      // Insertar promedio
-      if (alumno.promedio !== null && alumno.promedio !== undefined && !isNaN(alumno.promedio)) {
-        const promedioRedondeado = Math.round(alumno.promedio * 10) / 10;
-
-        await new sql.Request(transaction)
-          .input('RegId', sql.Int, registrationId)
-          .input('AssessmentId', sql.Int, assessmentId)
-          .input('Promedio', sql.Decimal(4, 1), promedioRedondeado)
-          .input('Fecha', sql.DateTime, fecha)
-          .query(`
-            INSERT INTO AssessmentResult
-            (AssessmentRegistrationId, AssessmentId, ScoreValue, IsAverage, DateCreated)
-            VALUES (@RegId, @AssessmentId, @Promedio, 1, @Fecha)
-          `);
-
-        console.log(`[GUARDAR_ACUMULATIVA] Promedio insertado para ${registrationId}: ${promedioRedondeado}`);
-      } else {
-        console.warn(`[GUARDAR_ACUMULATIVA] Promedio inválido omitido para alumno ${registrationId}`);
+      // Calcular e insertar promedio
+      let promedio = 0;
+      if (notasValidas > 0) {
+        promedio = Math.round((sumaNotas / notasValidas) * 10) / 10;
       }
+
+      // Usar el primer subtestId para el promedio
+      const subtestId = subtestIds[0];
+
+      // Insertar promedio - ELIMINADO DateCreated de la inserción
+      await new sql.Request(transaction)
+        .input('RegId', sql.Int, registrationId)
+        .input('SubtestId', sql.Int, subtestId)
+        .input('Promedio', sql.Decimal(4, 1), promedio)
+        .query(`
+          INSERT INTO AssessmentResult
+          (AssessmentRegistrationId, AssessmentSubtestId, ScoreValue, IsAverage)
+          VALUES (@RegId, @SubtestId, @Promedio, 1)
+        `);
+        
+      console.log(`[GUARDAR_ACUMULATIVA] Promedio insertado para ${registrationId}: ${promedio}, subtestId: ${subtestId}`);
+      promediosInsertados++;
+      
+      // Insertar nota principal - ELIMINADO DateCreated de la inserción
+      await new sql.Request(transaction)
+        .input('RegId', sql.Int, registrationId)
+        .input('SubtestId', sql.Int, subtestId)
+        .input('Promedio', sql.Decimal(4, 1), promedio)
+        .query(`
+          INSERT INTO AssessmentResult
+          (AssessmentRegistrationId, AssessmentSubtestId, ScoreValue)
+          VALUES (@RegId, @SubtestId, @Promedio)
+        `);
+        
+      console.log(`[GUARDAR_ACUMULATIVA] Nota principal creada para ${registrationId}: ${promedio}, subtestId: ${subtestId}`);
+      notasPrincipalesActualizadas++;
     }
 
     await transaction.commit();
     console.log('[GUARDAR_ACUMULATIVA] Proceso finalizado exitosamente');
-    res.status(200).json({ success: true, message: 'Notas acumulativas guardadas correctamente' });
-
+    console.log(`[ESTADÍSTICAS] Notas insertadas: ${notasInsertadas}, Promedios insertados: ${promediosInsertados}, Registros omitidos: ${registrosOmitidos}, Notas principales actualizadas: ${notasPrincipalesActualizadas}, Registros creados: ${registrosCreados}`);
+    
+    res.status(200).json({ 
+      success: true, 
+      message: 'Notas acumulativas guardadas correctamente',
+      stats: {
+        notasInsertadas,
+        promediosInsertados,
+        registrosOmitidos,
+        notasPrincipalesActualizadas,
+        registrosCreados
+      }
+    });
   } catch (error) {
+    await transaction.rollback();
     console.error('[GUARDAR_ACUMULATIVA][ERROR]', error);
-    res.status(500).json({ success: false, message: 'Error al guardar notas acumulativas', error });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error al guardar notas acumulativas', 
+      error: error.message || error 
+    });
   }
 };
+
 
 
 /*
@@ -1500,77 +1905,96 @@ exports.getNotasAcumuladas = async (req, res) => {
 // POST /api/notas/get-notas-acumuladas
 exports.getNotasAcumuladas = async (req, res) => {
   try {
-    const { cursoId, asignaturaId, assessmentIds } = req.body;
+    const { cursoId, asignaturaId, columnas } = req.body;
 
-    if (!cursoId || !asignaturaId || !Array.isArray(assessmentIds) || assessmentIds.length === 0) {
+    if (!cursoId || !asignaturaId) {
       return res.status(400).json({ error: 'Parámetros inválidos' });
     }
 
     const pool = await poolPromise;
     const request = pool.request();
 
-    console.log(`[GET_NOTAS_ACUMULADAS] cursoId=${cursoId}, asignaturaId=${asignaturaId}, columnas=${assessmentIds.join(',')}`);
+    console.log(`[GET_NOTAS_ACUMULADAS] cursoId=${cursoId}, asignaturaId=${asignaturaId}`);
 
+    // Obtener todos los estudiantes del curso
     const query = `
-      WITH Estudiantes AS (
-        SELECT DISTINCT
+      SELECT 
           p.PersonId,
           p.FirstName,
           p.LastName,
-          p.SecondLastName
-        FROM OrganizationPersonRole r
-        INNER JOIN Person p ON p.PersonId = r.PersonId
-        WHERE r.OrganizationId = @cursoId
-          AND r.RoleId = 6
-      ),
-      Registros AS (
-        SELECT
-          ar.AssessmentRegistrationId,
-          ar.PersonId,
-          ar.CourseSectionOrganizationId
-        FROM AssessmentRegistration ar
-        WHERE ar.CourseSectionOrganizationId = @asignaturaId
-      ),
-      Resultados AS (
-        SELECT
-          ar.PersonId,
-          ar.AssessmentRegistrationId,
-          r.AssessmentId,
-          r.ScoreValue,
-          r.IsAverage
-        FROM AssessmentResult r
-        INNER JOIN AssessmentRegistration ar ON ar.AssessmentRegistrationId = r.AssessmentRegistrationId
-        WHERE r.AssessmentId IN (${assessmentIds.join(',')})
-      )
-      SELECT 
-        e.PersonId,
-        e.FirstName,
-        e.LastName,
-        e.SecondLastName,
-        r.AssessmentId,
-        r.ScoreValue,
-        r.IsAverage
-      FROM Estudiantes e
-      INNER JOIN Registros ar ON ar.PersonId = e.PersonId
-      LEFT JOIN Resultados r ON r.PersonId = e.PersonId AND r.AssessmentRegistrationId = ar.AssessmentRegistrationId
-      ORDER BY e.LastName, e.FirstName, r.AssessmentId, r.IsAverage
+        p.SecondLastName,
+        opr.OrganizationPersonRoleId
+      FROM OrganizationPersonRole opr
+      INNER JOIN Person p ON p.PersonId = opr.PersonId
+      WHERE opr.OrganizationId = @cursoId
+        AND opr.RoleId = 6 -- Estudiantes
+      ORDER BY p.LastName, p.FirstName
     `;
 
     const result = await request
       .input('cursoId', sql.Int, cursoId)
-      .input('asignaturaId', sql.Int, asignaturaId)
       .query(query);
 
-    console.log(`[GET_NOTAS_ACUMULADAS] Resultados obtenidos: ${result.recordset.length}`);
-    res.status(200).json(result.recordset);
+    // Obtener el AssessmentAdministrationId para el assessmentId
+    let assessmentAdministrationId = null;
+    if (columnas && columnas.length > 0) {
+      const assessmentId = columnas[0]; // Usar el primer assessmentId
+      const adminResult = await pool.request()
+        .input('assessmentId', sql.Int, assessmentId)
+        .query(`
+          SELECT TOP 1 aa.AssessmentAdministrationId
+          FROM Assessment_AssessmentAdministration aa
+          WHERE aa.AssessmentId = @assessmentId
+        `);
+
+      if (adminResult.recordset.length > 0) {
+        assessmentAdministrationId = adminResult.recordset[0].AssessmentAdministrationId;
+        console.log(`[GET_NOTAS_ACUMULADAS] AssessmentAdministrationId encontrado: ${assessmentAdministrationId}`);
+      }
+    }
+
+    // Para cada estudiante, verificar si tiene un registro de inscripción
+    const estudiantes = [];
+    for (const est of result.recordset) {
+      const estudiante = {
+        FirstName: est.FirstName,
+        LastName: est.LastName,
+        SecondLastName: est.SecondLastName,
+        PersonId: est.PersonId,
+        OrganizationPersonRoleId: est.OrganizationPersonRoleId,
+        AssessmentRegistrationId: null
+      };
+
+      // Si tenemos un AssessmentAdministrationId, buscar el registro de inscripción
+      if (assessmentAdministrationId) {
+        const regResult = await pool.request()
+          .input('assessmentAdministrationId', sql.Int, assessmentAdministrationId)
+          .input('personId', sql.Int, est.PersonId)
+          .query(`
+            SELECT AssessmentRegistrationId
+            FROM AssessmentRegistration
+            WHERE AssessmentAdministrationId = @assessmentAdministrationId
+              AND PersonId = @personId
+          `);
+
+        if (regResult.recordset.length > 0) {
+          estudiante.AssessmentRegistrationId = regResult.recordset[0].AssessmentRegistrationId;
+        }
+      }
+
+      estudiantes.push(estudiante);
+    }
+
+    console.log(`[GET_NOTAS_ACUMULADAS] Estudiantes encontrados: ${estudiantes.length}`);
+    res.status(200).json(estudiantes);
   } catch (error) {
     console.error('[GET_NOTAS_ACUMULADAS][ERROR]', error);
-    res.status(500).json({ success: false, message: 'Error al obtener notas acumulativas', error });
+    res.status(500).json({ success: false, message: 'Error al obtener estudiantes para notas acumulativas', error: error.message });
   }
 };
 
 
-//aqui2
+// aqui2
 // POST /api/notas/crear-assessment-registrations
 exports.crearAssessmentRegistrations = async (req, res) => {
   const { assessmentId, estudiantes } = req.body;
@@ -1580,14 +2004,12 @@ exports.crearAssessmentRegistrations = async (req, res) => {
   }
 
   const pool = await poolPromise;
-  const tx = new sql.Transaction(pool);
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
 
   try {
-    await tx.begin();
-
-    // 🔍 Buscar el AssessmentAdministrationId correspondiente
-    const requestAdmin = new sql.Request(tx);
-    const resultAdmin = await requestAdmin
+    // Obtener AssessmentAdministrationId
+    const adminResult = await new sql.Request(transaction)
       .input('assessmentId', sql.Int, assessmentId)
       .query(`
         SELECT TOP 1 aa.AssessmentAdministrationId
@@ -1595,65 +2017,107 @@ exports.crearAssessmentRegistrations = async (req, res) => {
         WHERE aa.AssessmentId = @assessmentId
       `);
 
-    if (resultAdmin.recordset.length === 0) {
-      throw new Error(`No se encontró AssessmentAdministration para el assessmentId ${assessmentId}`);
+    if (adminResult.recordset.length === 0) {
+      console.error(`[ERROR crearAssessmentRegistrations] No se encontró AssessmentAdministrationId para assessmentId: ${assessmentId}`);
+      await transaction.rollback();
+      return res.status(404).json({ error: 'No se encontró AssessmentAdministrationId' });
     }
 
-    const assessmentAdministrationId = resultAdmin.recordset[0].AssessmentAdministrationId;
+    const assessmentAdministrationId = adminResult.recordset[0].AssessmentAdministrationId;
+    console.log(`[INFO] Usando AssessmentAdministrationId: ${assessmentAdministrationId} para assessmentId: ${assessmentId}`);
 
-    for (const est of estudiantes) {
-      if (!est.personId || !est.courseSectionOrgId || !est.assignedBy) {
-        console.warn(`[WARN crearAssessmentRegistrations] Estudiante omitido por datos incompletos: ${JSON.stringify(est)}`);
+    const registrosCreados = [];
+    const registrosExistentes = [];
+    const registrosOmitidos = [];
+
+    for (const estudiante of estudiantes) {
+      // Verificar datos mínimos necesarios
+      if (!estudiante.personId) {
+        console.warn(`[WARN crearAssessmentRegistrations] Estudiante omitido por falta de personId`);
+        registrosOmitidos.push(estudiante);
         continue;
       }
 
-      const requestCheck = new sql.Request(tx);
-      const check = await requestCheck
-        .input('personId', sql.Int, est.personId)
-        .input('asignaturaId', sql.Int, est.courseSectionOrgId)
+      const organizationId = estudiante.organizationId || req.body.cursoId;
+      const courseSectionOrgId = estudiante.courseSectionOrgId || req.body.asignaturaId;
+
+      if (!organizationId) {
+        console.warn(`[WARN crearAssessmentRegistrations] Estudiante omitido por falta de organizationId (cursoId)`);
+        registrosOmitidos.push(estudiante);
+        continue;
+      }
+
+      try {
+        // Verificar si ya existe un registro para este estudiante
+        const checkResult = await new sql.Request(transaction)
+        .input('assessmentAdministrationId', sql.Int, assessmentAdministrationId)
+          .input('personId', sql.Int, estudiante.personId)
         .query(`
           SELECT AssessmentRegistrationId
           FROM AssessmentRegistration
-          WHERE PersonId = @personId
-            AND CourseSectionOrganizationId = @asignaturaId
-        `);
+            WHERE AssessmentAdministrationId = @assessmentAdministrationId
+              AND PersonId = @personId
+          `);
 
-      if (check.recordset.length === 0) {
-        const requestInsert = new sql.Request(tx);
-        await requestInsert
+        if (checkResult.recordset.length > 0) {
+          // Ya existe un registro
+          registrosExistentes.push({
+            ...estudiante,
+            assessmentRegistrationId: checkResult.recordset[0].AssessmentRegistrationId
+          });
+          continue;
+        }
+
+        // Crear nuevo registro
+        const insertResult = await new sql.Request(transaction)
           .input('assessmentAdministrationId', sql.Int, assessmentAdministrationId)
-          .input('courseSectionOrgId', sql.Int, est.courseSectionOrgId)
-          .input('personId', sql.Int, est.personId)
-          .input('assignedBy', sql.Int, est.assignedBy)
-          .input('anio', sql.Int, 1) // Puede ajustarse si se desea usar dinámicamente el año escolar
+          .input('personId', sql.Int, estudiante.personId)
+          .input('organizationId', sql.Int, organizationId)
+          .input('courseSectionOrgId', sql.Int, courseSectionOrgId)
           .query(`
             INSERT INTO AssessmentRegistration (
               AssessmentAdministrationId,
-              CourseSectionOrganizationId,
               PersonId,
-              AssignedByPersonId,
-              SchoolFullAcademicYear,
-              CreationDate
+              OrganizationId,
+              CourseSectionOrganizationId,
+              DateCreated
             )
+            OUTPUT INSERTED.AssessmentRegistrationId
             VALUES (
               @assessmentAdministrationId,
-              @courseSectionOrgId,
               @personId,
-              @assignedBy,
-              @anio,
+              @organizationId,
+              @courseSectionOrgId,
               GETDATE()
             )
           `);
+          
+        if (insertResult.recordset.length > 0) {
+          registrosCreados.push({
+            ...estudiante,
+            assessmentRegistrationId: insertResult.recordset[0].AssessmentRegistrationId
+          });
+        }
+      } catch (error) {
+        console.error(`[ERROR crearAssessmentRegistrations] Error al procesar estudiante:`, error);
+        registrosOmitidos.push(estudiante);
       }
     }
 
-    await tx.commit();
-    res.json({ message: 'Registros verificados/insertados correctamente' });
+    await transaction.commit();
 
+    console.log(`[INFO crearAssessmentRegistrations] Registros creados: ${registrosCreados.length}, existentes: ${registrosExistentes.length}, omitidos: ${registrosOmitidos.length}`);
+
+    res.status(200).json({
+      message: 'Registros de inscripción procesados',
+      creados: registrosCreados,
+      existentes: registrosExistentes,
+      omitidos: registrosOmitidos
+    });
   } catch (error) {
-    await tx.rollback();
+    await transaction.rollback();
     console.error('[ERROR crearAssessmentRegistrations]', error);
-    res.status(500).json({ error: 'Error al registrar estudiantes en evaluación' });
+    res.status(500).json({ error: 'Error al crear registros de inscripción' });
   }
 };
 
@@ -1663,7 +2127,7 @@ exports.crearAssessmentRegistrations = async (req, res) => {
 // DELETE /api/notas/limpiar-datos-previos
 exports.limpiarDatosPrevios = async (req, res) => {
   try {
-    const { assessmentId, cursoId, asignaturaId, columna } = req.body;
+    const { assessmentId, cursoId, asignaturaId, columna, tipoNuevo } = req.body;
 
     if (!assessmentId || !cursoId || !asignaturaId || !columna) {
       return res.status(400).json({ error: 'Faltan parámetros requeridos' });
@@ -1673,40 +2137,60 @@ exports.limpiarDatosPrevios = async (req, res) => {
     const transaction = new sql.Transaction(pool);
     await transaction.begin();
 
-    console.log(`[LIMPIAR_DATOS] Iniciando limpieza para assessmentId: ${assessmentId}, columna: ${columna}`);
+    console.log(`[LIMPIAR_DATOS] Iniciando limpieza para assessmentId: ${assessmentId}, columna: ${columna}, cambiando a tipo: ${tipoNuevo}`);
 
     try {
-      // Ya no se usa AssessmentSubtest → usamos directamente el assessmentId como referencia
-      const assessmentSubtestId = parseInt(assessmentId);
-
-      // 1. Eliminar registros de AssessmentResult relacionados
-      const deleteResultResult = await new sql.Request(transaction)
-        .input('assessmentSubtestId', sql.Int, assessmentSubtestId)
+      // 1. Verificar si existen notas mayores o iguales a 1
+      const checkNotasResult = await new sql.Request(transaction)
+        .input('assessmentId', sql.Int, assessmentId)
         .input('cursoId', sql.Int, cursoId)
         .input('asignaturaId', sql.Int, asignaturaId)
         .query(`
-          DELETE ar FROM AssessmentResult ar
+          SELECT COUNT(*) AS NotasCount
+          FROM AssessmentResult ar
           INNER JOIN AssessmentRegistration reg ON ar.AssessmentRegistrationId = reg.AssessmentRegistrationId
-          WHERE ar.AssessmentSubtestId = @assessmentSubtestId
+          WHERE reg.AssessmentAdministrationId = @assessmentId
             AND reg.OrganizationId = @cursoId
             AND reg.CourseSectionOrganizationId = @asignaturaId
+            AND ar.ScoreValue >= 1.0
+        `);
+
+      const notasCount = checkNotasResult.recordset[0].NotasCount;
+      console.log(`[LIMPIAR_DATOS] Notas mayores o iguales a 1 encontradas: ${notasCount}`);
+
+      if (notasCount > 0) {
+        // 2. Eliminar registros de AssessmentResult relacionados donde ScoreValue >= 1
+        const deleteResultResult = await new sql.Request(transaction)
+          .input('assessmentId', sql.Int, assessmentId)
+          .input('cursoId', sql.Int, cursoId)
+          .input('asignaturaId', sql.Int, asignaturaId)
+          .query(`
+            DELETE FROM AssessmentResult
+            WHERE AssessmentRegistrationId IN (
+              SELECT ar.AssessmentRegistrationId 
+              FROM AssessmentRegistration ar
+              WHERE ar.AssessmentAdministrationId = @assessmentId
+                AND ar.OrganizationId = @cursoId
+                AND ar.CourseSectionOrganizationId = @asignaturaId
+            )
+            AND ScoreValue >= 1.0
         `);
 
       console.log(`[LIMPIAR_DATOS] Registros eliminados de AssessmentResult: ${deleteResultResult.rowsAffected[0]}`);
 
-      // 2. Eliminar registros de AssessmentRegistration si no tienen otros resultados
+        // 3. Eliminar registros de AssessmentRegistration si no tienen otros resultados
       const deleteRegistrationResult = await new sql.Request(transaction)
         .input('assessmentId', sql.Int, assessmentId)
         .input('cursoId', sql.Int, cursoId)
         .input('asignaturaId', sql.Int, asignaturaId)
         .query(`
-          DELETE reg FROM AssessmentRegistration reg
-          WHERE reg.AssessmentFormId = 9999 -- dummy usado según definición actual
-            AND reg.OrganizationId = @cursoId
-            AND reg.CourseSectionOrganizationId = @asignaturaId
+            DELETE FROM AssessmentRegistration
+            WHERE AssessmentAdministrationId = @assessmentId
+              AND OrganizationId = @cursoId
+              AND CourseSectionOrganizationId = @asignaturaId
             AND NOT EXISTS (
               SELECT 1 FROM AssessmentResult ar 
-              WHERE ar.AssessmentRegistrationId = reg.AssessmentRegistrationId
+                WHERE ar.AssessmentRegistrationId = AssessmentRegistrationId
             )
         `);
 
@@ -1719,6 +2203,15 @@ exports.limpiarDatosPrevios = async (req, res) => {
         resultadosEliminados: deleteResultResult.rowsAffected[0],
         registrosEliminados: deleteRegistrationResult.rowsAffected[0]
       });
+      } else {
+        // No hay notas mayores o iguales a 1, no es necesario eliminar
+        await transaction.commit();
+        res.status(200).json({
+          message: 'No se encontraron notas mayores o iguales a 1 para eliminar',
+          resultadosEliminados: 0,
+          registrosEliminados: 0
+        });
+      }
 
     } catch (error) {
       await transaction.rollback();
@@ -1735,71 +2228,684 @@ exports.limpiarDatosPrevios = async (req, res) => {
 // POST /api/notas/notas-acumuladas/cargar-existentes
 exports.cargarNotasAcumulativasExistentes = async (req, res) => {
   try {
-    const { assessmentSubtestId, cursoId, asignaturaId } = req.body;
+    const { assessmentId, cursoId, asignaturaId } = req.body;
 
-    if (!assessmentSubtestId || !cursoId || !asignaturaId) {
+    if (!assessmentId || !cursoId || !asignaturaId) {
       return res.status(400).json({ error: 'Parámetros requeridos faltantes' });
     }
 
     const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
 
-    console.log(`[CARGAR_EXISTENTES] Buscando notas para assessmentSubtestId: ${assessmentSubtestId}`);
+    try {
+      console.log(`[CARGAR_EXISTENTES] Buscando notas para assessmentId: ${assessmentId}, cursoId: ${cursoId}, asignaturaId: ${asignaturaId}`);
 
-    const query = `
-      SELECT 
-        ar.AssessmentRegistrationId,
-        p.FirstName,
-        p.LastName,
-        p.SecondLastName,
-        result.ScoreValue,
-        result.IsAverage,
-        ROW_NUMBER() OVER (PARTITION BY ar.AssessmentRegistrationId, result.IsAverage ORDER BY result.DateCreated) as RowNum
-      FROM AssessmentResult result
-      INNER JOIN AssessmentRegistration ar ON result.AssessmentRegistrationId = ar.AssessmentRegistrationId
-      INNER JOIN Person p ON ar.PersonId = p.PersonId
-      WHERE result.AssessmentSubtestId = @assessmentSubtestId
-        AND ar.OrganizationId = @cursoId
-        AND ar.CourseSectionOrganizationId = @asignaturaId
-      ORDER BY p.LastName, p.FirstName, result.IsAverage, result.DateCreated
-    `;
+      // 1. Primero obtenemos el AssessmentAdministrationId correspondiente al assessmentId
+      const adminResult = await new sql.Request(transaction)
+        .input('assessmentId', sql.Int, assessmentId)
+        .query(`
+          SELECT TOP 1 aa.AssessmentAdministrationId
+          FROM Assessment_AssessmentAdministration aa
+          WHERE aa.AssessmentId = @assessmentId
+        `);
 
-    const result = await pool.request()
-      .input('assessmentSubtestId', sql.Int, assessmentSubtestId)
-      .input('cursoId', sql.Int, cursoId)
-      .input('asignaturaId', sql.Int, asignaturaId)
-      .query(query);
+      let assessmentAdministrationId;
 
-    // Organizar los datos por estudiante
-    const estudiantesMap = {};
+      if (adminResult.recordset.length === 0) {
+        console.log(`[CARGAR_EXISTENTES] No se encontró AssessmentAdministrationId para assessmentId: ${assessmentId}. Creando uno nuevo.`);
+        
+        // Crear un nuevo AssessmentAdministration
+        const insertAdminResult = await new sql.Request(transaction)
+          .input('fecha', sql.Date, new Date())
+          .query(`
+            INSERT INTO AssessmentAdministration (AdministrationDate)
+            OUTPUT INSERTED.AssessmentAdministrationId
+            VALUES (@fecha)
+          `);
+          
+        if (insertAdminResult.recordset.length > 0) {
+          assessmentAdministrationId = insertAdminResult.recordset[0].AssessmentAdministrationId;
+          
+          // Crear la relación Assessment_AssessmentAdministration
+          await new sql.Request(transaction)
+            .input('assessmentId', sql.Int, assessmentId)
+            .input('adminId', sql.Int, assessmentAdministrationId)
+            .query(`
+              INSERT INTO Assessment_AssessmentAdministration (AssessmentId, AssessmentAdministrationId)
+              VALUES (@assessmentId, @adminId)
+            `);
+            
+          console.log(`[CARGAR_EXISTENTES] Creado nuevo AssessmentAdministrationId: ${assessmentAdministrationId}`);
+        } else {
+          throw new Error('No se pudo crear AssessmentAdministration');
+        }
+      } else {
+        assessmentAdministrationId = adminResult.recordset[0].AssessmentAdministrationId;
+        console.log(`[CARGAR_EXISTENTES] AssessmentAdministrationId encontrado: ${assessmentAdministrationId}`);
+      }
 
-    for (const row of result.recordset) {
-      const key = row.AssessmentRegistrationId;
+      // 2. Obtener los AssessmentSubtestId relacionados con este assessmentId
+      const subtestResult = await new sql.Request(transaction)
+        .input('assessmentId', sql.Int, assessmentId)
+        .query(`
+          SELECT ast.AssessmentSubtestId, ast.Identifier 
+          FROM AssessmentSubtest ast
+          INNER JOIN AssessmentForm af ON ast.AssessmentFormId = af.AssessmentFormId
+          WHERE af.AssessmentId = @assessmentId
+          ORDER BY ast.AssessmentSubtestId
+        `);
+          
+      let subtestIds = subtestResult.recordset.map(r => r.AssessmentSubtestId);
+      const subtestDetails = subtestResult.recordset;
+      console.log(`[CARGAR_EXISTENTES] AssessmentSubtestIds encontrados:`, subtestIds);
+      console.log(`[CARGAR_EXISTENTES] Detalles de subtests:`, JSON.stringify(subtestDetails));
       
-      if (!estudiantesMap[key]) {
-        estudiantesMap[key] = {
-          AssessmentRegistrationId: row.AssessmentRegistrationId,
-          FirstName: row.FirstName,
-          LastName: row.LastName,
-          SecondLastName: row.SecondLastName,
-          subnotas: [],
+      // Si no hay subtests, crearlos
+      if (subtestIds.length === 0) {
+        console.log(`[CARGAR_EXISTENTES] No se encontraron subtests para assessmentId: ${assessmentId}. Creando subtests.`);
+        
+        // Verificar si existe AssessmentForm
+        const formResult = await new sql.Request(transaction)
+          .input('assessmentId', sql.Int, assessmentId)
+          .query(`
+            SELECT TOP 1 AssessmentFormId
+            FROM AssessmentForm
+            WHERE AssessmentId = @assessmentId
+          `);
+          
+        let assessmentFormId;
+        
+        if (formResult.recordset.length > 0) {
+          assessmentFormId = formResult.recordset[0].AssessmentFormId;
+          console.log(`[CARGAR_EXISTENTES] AssessmentFormId existente: ${assessmentFormId}`);
+        } else {
+          // Crear nuevo AssessmentForm - Quitamos FormVersion que causa el error
+          try {
+            const insertFormResult = await new sql.Request(transaction)
+              .input('assessmentId', sql.Int, assessmentId)
+              .query(`
+                INSERT INTO AssessmentForm (AssessmentId)
+                OUTPUT INSERTED.AssessmentFormId
+                VALUES (@assessmentId)
+              `);
+              
+            if (insertFormResult.recordset.length > 0) {
+              assessmentFormId = insertFormResult.recordset[0].AssessmentFormId;
+              console.log(`[CARGAR_EXISTENTES] Creado nuevo AssessmentFormId: ${assessmentFormId}`);
+            } else {
+              throw new Error('No se pudo crear AssessmentForm');
+            }
+          } catch (formError) {
+            console.error('[CARGAR_EXISTENTES][ERROR]', formError);
+            throw new Error('Error al crear AssessmentForm: ' + formError.message);
+          }
+        }
+        
+        // Crear 2 subtests por defecto
+        subtestIds = [];
+        
+        for (let i = 1; i <= 2; i++) {
+          const insertSubtestResult = await new sql.Request(transaction)
+            .input('formId', sql.Int, assessmentFormId)
+            .input('identifier', sql.NVarChar, `N1.${i}`)
+            .input('title', sql.NVarChar, `Subnota ${i}`)
+            .input('tipoId', sql.Int, 1) // Tipo directo para las subnotas
+            .query(`
+              INSERT INTO AssessmentSubtest (
+                AssessmentFormId, 
+                Identifier, 
+                Title,
+                RefAssessmentSubtestTypeId
+              )
+              OUTPUT INSERTED.AssessmentSubtestId
+              VALUES (
+                @formId,
+                @identifier,
+                @title,
+                @tipoId
+              )
+            `);
+            
+          if (insertSubtestResult.recordset.length > 0) {
+            const subtestId = insertSubtestResult.recordset[0].AssessmentSubtestId;
+            subtestIds.push(subtestId);
+            console.log(`[CARGAR_EXISTENTES] Creado subtest ${i} con ID: ${subtestId}`);
+          }
+        }
+      }
+
+      // 3. Obtener todos los estudiantes del curso
+      const estudiantesQuery = `
+        SELECT 
+          opr.OrganizationPersonRoleId,
+          p.PersonId,
+          p.FirstName,
+          p.LastName,
+          p.SecondLastName
+        FROM OrganizationPersonRole opr
+        INNER JOIN Person p ON opr.PersonId = p.PersonId
+        WHERE opr.OrganizationId = @cursoId
+          AND opr.RoleId = 6 -- Estudiantes
+        ORDER BY p.LastName, p.FirstName
+      `;
+      
+      const estudiantesResult = await new sql.Request(transaction)
+        .input('cursoId', sql.Int, cursoId)
+        .query(estudiantesQuery);
+      
+      // 4. Para cada estudiante, buscar su AssessmentRegistrationId y sus notas
+      const estudiantesConNotas = [];
+      
+      for (const estudiante of estudiantesResult.recordset) {
+        // Buscar el AssessmentRegistrationId para este estudiante
+        const registroQuery = `
+          SELECT ar.AssessmentRegistrationId
+          FROM AssessmentRegistration ar
+          WHERE ar.AssessmentAdministrationId = @assessmentAdministrationId
+            AND ar.PersonId = @personId
+            AND ar.OrganizationId = @cursoId
+        `;
+
+        const registroResult = await new sql.Request(transaction)
+          .input('assessmentAdministrationId', sql.Int, assessmentAdministrationId)
+          .input('personId', sql.Int, estudiante.PersonId)
+          .input('cursoId', sql.Int, cursoId)
+          .query(registroQuery);
+        
+        let registrationId = null;
+        if (registroResult.recordset.length > 0) {
+          registrationId = registroResult.recordset[0].AssessmentRegistrationId;
+        } else {
+          // Si no existe un registro para este estudiante, crearlo
+          const insertRegResult = await new sql.Request(transaction)
+            .input('assessmentAdministrationId', sql.Int, assessmentAdministrationId)
+            .input('personId', sql.Int, estudiante.PersonId)
+            .input('cursoId', sql.Int, cursoId)
+            .input('asignaturaId', sql.Int, asignaturaId)
+            .query(`
+              INSERT INTO AssessmentRegistration (
+                AssessmentAdministrationId, 
+                PersonId,
+                OrganizationId,
+                CourseSectionOrganizationId
+              ) 
+              OUTPUT INSERTED.AssessmentRegistrationId
+              VALUES (
+                @assessmentAdministrationId,
+                @personId,
+                @cursoId,
+                @asignaturaId
+              )
+            `);
+            
+          if (insertRegResult.recordset.length > 0) {
+            registrationId = insertRegResult.recordset[0].AssessmentRegistrationId;
+            console.log(`[CARGAR_EXISTENTES] Creado nuevo AssessmentRegistrationId: ${registrationId} para estudiante ${estudiante.FirstName} ${estudiante.LastName}`);
+          }
+        }
+        
+        const estudianteData = {
+          nombre: `${estudiante.FirstName} ${estudiante.LastName} ${estudiante.SecondLastName || ''}`.trim(),
+          assessmentRegistrationId: registrationId,
+          personId: estudiante.PersonId,
+          organizationPersonRoleId: estudiante.OrganizationPersonRoleId,
+          firstName: estudiante.FirstName,
+          lastName: estudiante.LastName,
+          secondLastName: estudiante.SecondLastName,
+          notas: Array(subtestIds.length).fill(null),
+          pesos: Array(subtestIds.length).fill(100/subtestIds.length),
           promedio: null
         };
+        
+        // Si tiene registrationId, buscar sus notas
+        if (registrationId) {
+          // Obtener todas las notas para este registro (subnotas y promedio)
+          const notasQuery = `
+            SELECT 
+              ar.ScoreValue,
+              ar.IsAverage,
+              ar.AssessmentSubtestId
+            FROM AssessmentResult ar
+            WHERE ar.AssessmentRegistrationId = @regId
+              AND ar.AssessmentSubtestId IN (${subtestIds.join(',')})
+            ORDER BY ar.IsAverage, ar.AssessmentSubtestId
+          `;
+          
+          const notasResult = await new sql.Request(transaction)
+            .input('regId', sql.Int, registrationId)
+            .query(notasQuery);
+          
+          // Procesar las notas encontradas
+          for (const nota of notasResult.recordset) {
+            if (nota.IsAverage === 1) {
+              // Es un promedio
+              estudianteData.promedio = nota.ScoreValue;
+            } else if (nota.IsAverage === 0) {
+              // Es una subnota individual
+              // Encontrar el índice correspondiente en el array de subnotas
+              const subtestIndex = subtestIds.findIndex(id => id === nota.AssessmentSubtestId);
+              if (subtestIndex !== -1) {
+                estudianteData.notas[subtestIndex] = nota.ScoreValue;
+              }
+            } else if (nota.IsAverage === null && estudianteData.promedio === null) {
+              // Si es la nota principal y no tenemos promedio, usarla como promedio
+              estudianteData.promedio = nota.ScoreValue;
+            }
+          }
+        }
+        
+        estudiantesConNotas.push(estudianteData);
       }
-
-      if (row.IsAverage === 1) {
-        estudiantesMap[key].promedio = row.ScoreValue;
-      } else {
-        estudiantesMap[key].subnotas.push(row.ScoreValue);
-      }
+      
+      console.log(`[CARGAR_EXISTENTES] Total estudiantes procesados: ${estudiantesConNotas.length}`);
+      console.log(`[CARGAR_EXISTENTES] Ejemplo primer estudiante:`, estudiantesConNotas.length > 0 ? JSON.stringify(estudiantesConNotas[0]) : 'No hay estudiantes');
+      
+      await transaction.commit();
+      res.status(200).json(estudiantesConNotas);
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
     }
-
-    const estudiantesConNotas = Object.values(estudiantesMap);
-    
-    console.log(`[CARGAR_EXISTENTES] Estudiantes encontrados: ${estudiantesConNotas.length}`);
-    
-    res.status(200).json(estudiantesConNotas);
   } catch (error) {
     console.error('[CARGAR_EXISTENTES][ERROR]', error);
-    res.status(500).json({ error: 'Error al cargar notas existentes' });
+    res.status(500).json({ error: 'Error al cargar notas acumulativas existentes: ' + error.message });
+  }
+};
+
+// POST /api/notas/obtener-assessment-registrations
+exports.obtenerAssessmentRegistrations = async (req, res) => {
+  const { assessmentId, organizationPersonRoleIds } = req.body;
+
+  if (!assessmentId || !Array.isArray(organizationPersonRoleIds)) {
+    return res.status(400).json({ error: 'Datos incompletos' });
+  }
+
+  try {
+    const pool = await poolPromise;
+
+    // 1. Obtener el AssessmentAdministrationId a partir del AssessmentId
+    const adminResult = await pool.request()
+      .input('assessmentId', sql.Int, assessmentId)
+      .query(`
+        SELECT TOP 1 aa.AssessmentAdministrationId
+        FROM Assessment_AssessmentAdministration aa
+        WHERE aa.AssessmentId = @assessmentId
+      `);
+
+    const assessmentAdministrationId = adminResult.recordset[0]?.AssessmentAdministrationId;
+
+    if (!assessmentAdministrationId) {
+      return res.status(404).json({ error: 'No se encontró AssessmentAdministrationId para el AssessmentId dado.' });
+    }
+
+    // 2. Construir la consulta para obtener los registros de inscripción
+    // Usamos la tabla OrganizationPersonRole para vincular con los IDs proporcionados
+    const query = `
+      SELECT 
+        AR.AssessmentRegistrationId,
+        OPR.OrganizationPersonRoleId,
+        AR.PersonId
+      FROM 
+        AssessmentRegistration AR
+      INNER JOIN 
+        OrganizationPersonRole OPR ON AR.PersonId = OPR.PersonId
+      WHERE 
+        AR.AssessmentAdministrationId = @assessmentAdministrationId
+        AND OPR.OrganizationPersonRoleId IN (${organizationPersonRoleIds.map((_, i) => `@id${i}`).join(',')})
+    `;
+
+    const request = pool.request()
+      .input('assessmentAdministrationId', sql.Int, assessmentAdministrationId);
+
+    // Añadir parámetros dinámicamente para los IDs
+    organizationPersonRoleIds.forEach((id, index) => {
+      request.input(`id${index}`, sql.Int, id);
+    });
+
+    const result = await request.query(query);
+
+    console.log(`[obtenerAssessmentRegistrations] Registros encontrados: ${result.recordset.length}`);
+    res.json(result.recordset);
+
+  } catch (error) {
+    console.error('[ERROR obtenerAssessmentRegistrations]', error);
+    res.status(500).json({ error: 'Error al obtener registros de inscripción' });
+  }
+};
+
+// GET /api/notas/assessment-administration/:assessmentId
+exports.getAssessmentAdministration = async (req, res) => {
+  try {
+    const { assessmentId } = req.params;
+    
+    if (!assessmentId) {
+      return res.status(400).json({ error: 'AssessmentId es requerido' });
+    }
+    
+    const pool = await poolPromise;
+    
+    const result = await pool.request()
+      .input('assessmentId', sql.Int, assessmentId)
+      .query(`
+        SELECT TOP 1 aa.AssessmentAdministrationId
+        FROM Assessment_AssessmentAdministration aa
+        WHERE aa.AssessmentId = @assessmentId
+      `);
+      
+    if (result.recordset.length === 0) {
+      return res.status(404).json({ error: 'No se encontró AssessmentAdministrationId para el AssessmentId proporcionado' });
+    }
+    
+    res.status(200).json({ 
+      assessmentAdministrationId: result.recordset[0].AssessmentAdministrationId 
+    });
+  } catch (error) {
+    console.error('[ERROR] Error al obtener AssessmentAdministrationId:', error);
+    res.status(500).json({ error: 'Error al obtener AssessmentAdministrationId' });
+  }
+};
+
+// POST /api/notas/crear-registro
+exports.crearRegistro = async (req, res) => {
+  try {
+    const { assessmentAdministrationId, organizationPersonRoleId, cursoId, asignaturaId } = req.body;
+    
+    if (!assessmentAdministrationId || !organizationPersonRoleId || !cursoId) {
+      return res.status(400).json({ error: 'Faltan datos requeridos' });
+    }
+    
+    const pool = await poolPromise;
+    
+    // Primero, obtener el PersonId del OrganizationPersonRoleId
+    const personResult = await pool.request()
+      .input('organizationPersonRoleId', sql.Int, organizationPersonRoleId)
+      .query(`
+        SELECT PersonId 
+        FROM OrganizationPersonRole 
+        WHERE OrganizationPersonRoleId = @organizationPersonRoleId
+      `);
+      
+    if (personResult.recordset.length === 0) {
+      return res.status(404).json({ error: 'No se encontró la persona asociada al OrganizationPersonRoleId' });
+    }
+    
+    const personId = personResult.recordset[0].PersonId;
+    
+    // Verificar si ya existe un registro para esta persona en esta administración
+    const checkResult = await pool.request()
+      .input('assessmentAdministrationId', sql.Int, assessmentAdministrationId)
+      .input('personId', sql.Int, personId)
+      .query(`
+        SELECT AssessmentRegistrationId 
+        FROM AssessmentRegistration 
+        WHERE AssessmentAdministrationId = @assessmentAdministrationId 
+          AND PersonId = @personId
+      `);
+      
+    // Si ya existe, devolver ese ID
+    if (checkResult.recordset.length > 0) {
+      return res.status(200).json({ 
+        assessmentRegistrationId: checkResult.recordset[0].AssessmentRegistrationId,
+        message: 'El registro ya existía'
+      });
+    }
+    
+    // Si no existe, crear uno nuevo
+    const insertResult = await pool.request()
+      .input('assessmentAdministrationId', sql.Int, assessmentAdministrationId)
+      .input('personId', sql.Int, personId)
+      .input('cursoId', sql.Int, cursoId)
+      .input('asignaturaId', sql.Int, asignaturaId || null)
+      .query(`
+        INSERT INTO AssessmentRegistration (
+          AssessmentAdministrationId, 
+          PersonId,
+          OrganizationId,
+          CourseSectionOrganizationId,
+          DateCreated
+        ) 
+        VALUES (
+          @assessmentAdministrationId, 
+          @personId,
+          @cursoId,
+          @asignaturaId,
+          GETDATE()
+        );
+        
+        SELECT SCOPE_IDENTITY() AS AssessmentRegistrationId;
+      `);
+      
+    const assessmentRegistrationId = insertResult.recordset[0].AssessmentRegistrationId;
+    
+    res.status(201).json({ 
+      assessmentRegistrationId,
+      message: 'Registro creado exitosamente'
+    });
+  } catch (error) {
+    console.error('[ERROR] Error al crear registro de inscripción:', error);
+    res.status(500).json({ error: 'Error al crear registro de inscripción' });
+  }
+};
+
+// POST /api/notas/crear-subnotas
+exports.crearSubnotas = async (req, res) => {
+  try {
+    const { assessmentId, columna, cantidadSubnotas } = req.body;
+    
+    if (!assessmentId || !columna || !cantidadSubnotas || cantidadSubnotas < 2) {
+      return res.status(400).json({ error: 'Faltan parámetros requeridos o cantidad de subnotas inválida' });
+    }
+    
+    const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    
+    try {
+      console.log(`[CREAR_SUBNOTAS] Iniciando creación de ${cantidadSubnotas} subnotas para assessmentId: ${assessmentId}, columna: ${columna}`);
+      
+      // 1. Verificar si ya existen subnotas para este assessmentId
+      const checkSubtestsResult = await new sql.Request(transaction)
+        .input('assessmentId', sql.Int, assessmentId)
+        .query(`
+          SELECT ast.AssessmentSubtestId, ast.Identifier
+          FROM AssessmentSubtest ast
+          INNER JOIN AssessmentForm af ON ast.AssessmentFormId = af.AssessmentFormId
+          WHERE af.AssessmentId = @assessmentId
+        `);
+      
+      if (checkSubtestsResult.recordset.length > 0) {
+        console.log(`[CREAR_SUBNOTAS] Ya existen ${checkSubtestsResult.recordset.length} subnotas para assessmentId: ${assessmentId}`);
+        
+        // Devolver las subnotas existentes
+        await transaction.commit();
+        return res.status(200).json({
+          message: `Ya existen ${checkSubtestsResult.recordset.length} subnotas para este assessment`,
+          subtests: checkSubtestsResult.recordset.map(st => ({
+            id: st.AssessmentSubtestId,
+            identifier: st.Identifier
+          }))
+        });
+      }
+      
+      // 2. Obtener AssessmentFormId relacionado con el Assessment
+      const formResult = await new sql.Request(transaction)
+        .input('assessmentId', sql.Int, assessmentId)
+        .query(`
+          SELECT TOP 1 af.AssessmentFormId
+          FROM AssessmentForm af
+          WHERE af.AssessmentId = @assessmentId
+        `);
+      
+      let assessmentFormId;
+      
+      if (formResult.recordset.length === 0) {
+        // Si no existe un form, crearlo
+        console.log(`[CREAR_SUBNOTAS] No se encontró AssessmentForm para assessmentId: ${assessmentId}, creando uno nuevo`);
+        
+        const createFormResult = await new sql.Request(transaction)
+          .input('assessmentId', sql.Int, assessmentId)
+          .input('name', sql.NVarChar(40), columna)
+          .input('publishedDate', sql.Date, new Date())
+          .query(`
+            INSERT INTO AssessmentForm (AssessmentId, Name, PublishedDate)
+            OUTPUT INSERTED.AssessmentFormId
+            VALUES (@assessmentId, @name, @publishedDate)
+          `);
+          
+        assessmentFormId = createFormResult.recordset[0].AssessmentFormId;
+      } else {
+        assessmentFormId = formResult.recordset[0].AssessmentFormId;
+      }
+      
+      console.log(`[CREAR_SUBNOTAS] AssessmentFormId: ${assessmentFormId}`);
+      
+      // 3. Crear nuevas subnotas
+      const createdSubtests = [];
+      
+      for (let i = 1; i <= cantidadSubnotas; i++) {
+        const identifier = `${columna}.${i}`;
+        const title = `Subnota ${i} de ${columna}`;
+        
+        const createSubtestResult = await new sql.Request(transaction)
+          .input('assessmentFormId', sql.Int, assessmentFormId)
+          .input('identifier', sql.NVarChar(40), identifier)
+          .input('title', sql.NVarChar(60), title)
+          .input('description', sql.NVarChar(100), `Subnota ${i} para evaluación ${columna}`)
+          .input('refScoreMetricTypeId', sql.Int, 31) // Escala clásica
+          .input('refAssessmentPurposeId', sql.Int, 23) // Sumativa
+          .input('refAcademicSubjectId', sql.Int, 1)
+          .input('refAssessmentSubtestTypeId', sql.Int, 1) // Tipo directo para subnotas
+          .query(`
+            INSERT INTO AssessmentSubtest (
+              AssessmentFormId, Identifier, Title, Description,
+              RefScoreMetricTypeId, RefAssessmentPurposeId, RefAcademicSubjectId,
+              RefAssessmentSubtestTypeId
+            )
+            OUTPUT INSERTED.AssessmentSubtestId
+            VALUES (
+              @assessmentFormId, @identifier, @title, @description,
+              @refScoreMetricTypeId, @refAssessmentPurposeId, @refAcademicSubjectId,
+              @refAssessmentSubtestTypeId
+            )
+          `);
+          
+        createdSubtests.push({
+          id: createSubtestResult.recordset[0].AssessmentSubtestId,
+          identifier: identifier,
+          title: title
+        });
+        
+        console.log(`[CREAR_SUBNOTAS] Creada subnota ${identifier} con ID: ${createSubtestResult.recordset[0].AssessmentSubtestId}`);
+      }
+      
+      await transaction.commit();
+      
+      res.status(200).json({
+        message: `${cantidadSubnotas} subnotas creadas correctamente`,
+        subtests: createdSubtests
+      });
+      
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  } catch (error) {
+    console.error('[CREAR_SUBNOTAS][ERROR]', error);
+    res.status(500).json({ error: 'Error al crear subnotas' });
+  }
+};
+
+// POST /api/notas/corregir-subtestid-nulos
+exports.corregirSubtestIdNulos = async (req, res) => {
+  try {
+    const { assessmentId } = req.body;
+    
+    if (!assessmentId) {
+      return res.status(400).json({ error: 'assessmentId es requerido' });
+    }
+    
+    const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    
+    try {
+      // 1. Obtener el AssessmentAdministrationId relacionado con este assessmentId
+      const adminResult = await new sql.Request(transaction)
+        .input('assessmentId', sql.Int, assessmentId)
+        .query(`
+          SELECT TOP 1 aa.AssessmentAdministrationId
+          FROM Assessment_AssessmentAdministration aa
+          WHERE aa.AssessmentId = @assessmentId
+        `);
+        
+      if (adminResult.recordset.length === 0) {
+        await transaction.rollback();
+        return res.status(404).json({ error: 'No se encontró AssessmentAdministrationId para el assessmentId proporcionado' });
+      }
+      
+      const assessmentAdministrationId = adminResult.recordset[0].AssessmentAdministrationId;
+      
+      // 2. Obtener el primer AssessmentSubtestId relacionado con este assessmentId
+      const subtestResult = await new sql.Request(transaction)
+        .input('assessmentId', sql.Int, assessmentId)
+        .query(`
+          SELECT TOP 1 ast.AssessmentSubtestId
+          FROM AssessmentSubtest ast
+          INNER JOIN AssessmentForm af ON ast.AssessmentFormId = af.AssessmentFormId
+          WHERE af.AssessmentId = @assessmentId
+          ORDER BY ast.AssessmentSubtestId
+        `);
+        
+      if (subtestResult.recordset.length === 0) {
+        await transaction.rollback();
+        return res.status(404).json({ error: 'No se encontraron subtests para el assessmentId proporcionado' });
+      }
+      
+      const subtestId = subtestResult.recordset[0].AssessmentSubtestId;
+      
+      // 3. Encontrar registros con AssessmentSubtestId nulo
+      const registrosNulosResult = await new sql.Request(transaction)
+        .input('assessmentAdministrationId', sql.Int, assessmentAdministrationId)
+        .query(`
+          SELECT ar.AssessmentResultId, ar.AssessmentRegistrationId, ar.ScoreValue
+          FROM AssessmentResult ar
+          INNER JOIN AssessmentRegistration reg ON ar.AssessmentRegistrationId = reg.AssessmentRegistrationId
+          WHERE reg.AssessmentAdministrationId = @assessmentAdministrationId
+            AND ar.AssessmentSubtestId IS NULL
+        `);
+        
+      const registrosNulos = registrosNulosResult.recordset;
+      console.log(`[CORREGIR_NULOS] Encontrados ${registrosNulos.length} registros con AssessmentSubtestId nulo`);
+      
+      // 4. Actualizar los registros con AssessmentSubtestId nulo
+      let registrosActualizados = 0;
+      
+      for (const registro of registrosNulos) {
+        await new sql.Request(transaction)
+          .input('resultId', sql.Int, registro.AssessmentResultId)
+          .input('subtestId', sql.Int, subtestId)
+          .query(`
+            UPDATE AssessmentResult
+            SET AssessmentSubtestId = @subtestId
+            WHERE AssessmentResultId = @resultId
+          `);
+          
+        registrosActualizados++;
+      }
+      
+      await transaction.commit();
+      
+      res.status(200).json({
+        message: `Se corrigieron ${registrosActualizados} registros con AssessmentSubtestId nulo`,
+        registrosCorregidos: registrosActualizados
+      });
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  } catch (error) {
+    console.error('[CORREGIR_NULOS][ERROR]', error);
+    res.status(500).json({ error: 'Error al corregir registros con AssessmentSubtestId nulo: ' + error.message });
   }
 };

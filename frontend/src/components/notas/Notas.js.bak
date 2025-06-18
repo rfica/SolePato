@@ -1831,6 +1831,8 @@ const confirmarCambioTipo = async (nuevoValor) => {
   );
 };
 
+
+
 const Notas = () => {
   const [anios, setAnios] = useState([]);
   const [colegios, setColegios] = useState([]);
@@ -1856,6 +1858,7 @@ const Notas = () => {
   const [modalTipo, setModalTipo] = useState(null);
   const [modalColumna, setModalColumna] = useState('');
 
+//  const [setTiposColumna] = useState([]);
   const [tiposColumna, setTiposColumna] = useState([]);
 
   const [escalas, setEscalas] = useState([]);
@@ -1870,7 +1873,7 @@ const Notas = () => {
   const [mostrarModalCambios, setMostrarModalCambios] = useState(false);
   const [tipoPendiente, setTipoPendiente] = useState(null); // ETAPA1: tipo solicitado antes de confirmar
 
-  useEffect(() => {
+   useEffect(() => {
     console.log("[DEBUG PADRE] configColumna updated:", configColumna);
   }, [configColumna]);
 
@@ -2566,39 +2569,12 @@ const Notas = () => {
         
         if (!assessmentAdministrationId) {
           console.error("[ERROR] No se pudo obtener AssessmentAdministrationId");
-          
-          // Intentar crear los AssessmentSubtests primero
-          try {
-            const subtestResponse = await axios.post('http://localhost:5000/api/notas/crear-subnotas', {
-              assessmentId,
-              columna: componentes[idxComp].nombre,
-              cantidadSubnotas: 2
-            });
-            
-            console.log("[DEBUG] Resultado de crear subnotas:", subtestResponse.data);
-          } catch (subtestError) {
-            console.warn("[WARN] Error al crear subnotas:", subtestError);
-          }
-          
-          // Intentar de nuevo obtener el AssessmentAdministrationId
-          try {
-            const adminRetryResponse = await axios.get(`http://localhost:5000/api/notas/assessment-administration/${assessmentId}`);
-            const assessmentAdministrationIdRetry = adminRetryResponse.data.assessmentAdministrationId;
-            
-            if (!assessmentAdministrationIdRetry) {
-              Swal.fire('Error', 'No se pudo obtener la información necesaria para guardar la nota.', 'error');
-              return;
-            }
-          } catch (adminRetryError) {
-            console.error("[ERROR] Error al reintentar obtener AssessmentAdministrationId:", adminRetryError);
-            Swal.fire('Error', 'No se pudo obtener la información necesaria para guardar la nota.', 'error');
-            return;
-          }
+          return;
         }
         
         // Crear un registro de inscripción para este estudiante
         const regResponse = await axios.post('http://localhost:5000/api/notas/crear-registro', {
-          assessmentAdministrationId: adminResponse.data.assessmentAdministrationId,
+          assessmentAdministrationId,
           organizationPersonRoleId: estudiante.OrganizationPersonRoleId,
           cursoId,
           asignaturaId
@@ -2609,7 +2585,6 @@ const Notas = () => {
       
       if (!assessmentRegistrationId) {
         console.error("[ERROR] No se pudo obtener/crear AssessmentRegistrationId");
-        Swal.fire('Error', 'No se pudo crear el registro necesario para guardar la nota.', 'error');
         return;
       }
       
@@ -2668,66 +2643,19 @@ const Notas = () => {
       // Enviamos la subnota al backend
       console.log("[DEBUG] Guardando nota acumulativa:", subnota);
       
-      // Intentar guardar 3 veces si es necesario
-      let intentos = 0;
-      let guardadoExitoso = false;
+      const response = await axios.post('http://localhost:5000/api/notas/notas-acumuladas/guardar', {
+        assessmentId,
+        fecha: fechaEvaluacion,
+        cursoId,
+        asignaturaId,
+        subnotas: [subnota]
+      });
       
-      while (intentos < 3 && !guardadoExitoso) {
-        try {
-          intentos++;
-          
-          const response = await axios.post('http://localhost:5000/api/notas/notas-acumuladas/guardar', {
-            assessmentId,
-            fecha: fechaEvaluacion,
-            cursoId,
-            asignaturaId,
-            subnotas: [subnota]
-          });
-          
-          console.log(`[DEBUG] Respuesta al guardar nota acumulativa (intento ${intentos}):`, response.data);
-          guardadoExitoso = true;
-          
-          // Actualizar el estado local con el promedio calculado
-          if (subnota.promedio !== null) {
-            actualizarPromedioLocal(idxEst, subnota.promedio);
-          }
-          
-          // Si es el primer intento exitoso, mostrar mensaje de éxito
-          if (intentos === 1) {
-            Swal.fire({
-              icon: 'success',
-              title: 'Nota guardada',
-              text: 'La nota se ha guardado correctamente.',
-              timer: 1500,
-              showConfirmButton: false
-            });
-          }
-        } catch (error) {
-          console.error(`[ERROR] Error al guardar nota acumulativa (intento ${intentos}):`, error);
-          
-          // Si es el último intento fallido, mostrar error
-          if (intentos === 3) {
-            Swal.fire({
-              icon: 'error',
-              title: 'Error',
-              text: 'No se pudo guardar la nota después de varios intentos. Intente nuevamente.'
-            });
-          } else {
-            // Esperar un momento antes de reintentar
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            // Intentar crear subnotas si es necesario
-            try {
-              await axios.post('http://localhost:5000/api/notas/crear-subnotas', {
-                assessmentId,
-                columna: componentes[idxComp].nombre,
-                cantidadSubnotas: 2
-              });
-            } catch (subtestError) {
-              console.warn("[WARN] Error al crear subnotas en reintento:", subtestError);
-            }
-          }
-        }
+      console.log("[DEBUG] Respuesta al guardar nota acumulativa:", response.data);
+      
+      // Actualizar el estado local con el promedio calculado
+      if (subnota.promedio !== null) {
+        actualizarPromedioLocal(idxEst, subnota.promedio);
       }
       
     } catch (error) {
