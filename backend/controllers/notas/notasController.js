@@ -1384,7 +1384,7 @@ exports.guardarNotasAcumuladas = async (req, res) => {
           if (notasValidas > 0) {
             const promedio = Math.round((sumaNotas / notasValidas) * 10) / 10;
             const subtestId = subtestIds[0]; // Usar el primer subtestId para el promedio
-            
+
             try {
               // Insertar promedio
               await new sql.Request(transaction)
@@ -1392,25 +1392,14 @@ exports.guardarNotasAcumuladas = async (req, res) => {
                 .input('subtestId', sql.Int, subtestId)
                 .input('promedio', sql.Decimal(4, 1), promedio)
                 .query(`
-                  INSERT INTO AssessmentResult
-                  (AssessmentRegistrationId, AssessmentSubtestId, ScoreValue, IsAverage)
-                  VALUES (@regId, @subtestId, @promedio, 1)
-                `);
-                
+                  INSERT INTO AssessmentResult                  (AssessmentRegistrationId, AssessmentSubtestId, ScoreValue, IsAverage)
+                  VALUES (@regId, NULL, @promedio, 1)                  `);
+
               console.log(`[GUARDAR_ACUMULATIVA] Promedio insertado: regId=${registrationId}, subtestId=${subtestId}, promedio=${promedio}`);
               promediosInsertados++;
-              
-              // Insertar nota principal
-              await new sql.Request(transaction)
-                .input('regId', sql.Int, registrationId)
-                .input('subtestId', sql.Int, subtestId)
-                .input('promedio', sql.Decimal(4, 1), promedio)
-                .query(`
-                  INSERT INTO AssessmentResult
-                  (AssessmentRegistrationId, AssessmentSubtestId, ScoreValue)
-                  VALUES (@regId, @subtestId, @promedio)
-                `);
-                
+
+
+
               console.log(`[GUARDAR_ACUMULATIVA] Nota principal insertada: regId=${registrationId}, subtestId=${subtestId}, promedio=${promedio}`);
             } catch (error) {
               console.error(`[GUARDAR_ACUMULATIVA] Error al insertar promedio/nota principal:`, error);
@@ -1805,7 +1794,7 @@ exports.limpiarDatosPrevios = async (req, res) => {
 // POST /api/notas/notas-acumuladas/cargar-existentes
 exports.cargarNotasAcumulativasExistentes = async (req, res) => {
   try {
-    const { assessmentSubtestId, cursoId, asignaturaId } = req.body;
+    const { assessmentId, cursoId, asignaturaId } = req.body;
 
     if (!assessmentSubtestId || !cursoId || !asignaturaId) {
       return res.status(400).json({ error: 'Parámetros requeridos faltantes' });
