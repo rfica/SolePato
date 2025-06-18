@@ -322,7 +322,7 @@ exports.guardarNotas = async (req, res) => {
             WHERE AssessmentRegistrationId = @assessmentRegistrationId
         `);
 
-      if (resultCheck.recordset.length > 0) {
+ if (resultCheck.recordset.length > 0) {
         // Actualizar
           await new sql.Request(transaction)
           .input('assessmentRegistrationId', sql.Int, assessmentRegistrationId)
