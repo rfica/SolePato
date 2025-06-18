@@ -1007,7 +1007,7 @@ async function getDescripcion(pool, tabla, idField, idValor) {
   return result.recordset[0]?.Description || null;
 }
 
-// GET /api/notas/configurar-columna/:assessmentId/:identifier
+// GET /api/notas/configurar-columna/:assessmentId
 exports.obtenerConfiguracionColumna = async (req, res) => {
   const { assessmentId } = req.params;
 
@@ -1016,16 +1016,17 @@ exports.obtenerConfiguracionColumna = async (req, res) => {
 
     console.log(`[OBTENER_CONFIG] Buscando configuración para assessmentId: ${assessmentId}`);
 
+    // Consulta para obtener la configuración principal del Assessment
     const result = await pool.request()
       .input('assessmentId', sql.Int, assessmentId)
       .query(`
-        SELECT 
+        SELECT
           A.AssessmentId,
           A.Identifier,
           A.Title,
           A.Objective AS Description,                       -- ⚠️ alias para mantener compatibilidad
           A.RefAssessmentTypeId AS RefAssessmentPurposeId,  -- ⚠️ como espera el frontend
-          RAT.Description AS AssessmentPurposeDescription,  -- ✅ para mostrar "Formativa", "Sumativa", etc.
+          RAT.Description AS AssessmentPurposeDescription,  -- ✅ para mostrar \"Formativa\", \"Sumativa\", etc.
           A.RefAssessmentSubtestTypeId,
           A.RefScoreMetricTypeId,
           A.WeightPercent,
@@ -1043,10 +1044,10 @@ exports.obtenerConfiguracionColumna = async (req, res) => {
     }
 
     const configuracion = result.recordset[0];
-    
+
     // La fecha ya viene formateada directamente desde SQL como YYYY-MM-DD
     console.log(`[OBTENER_CONFIG] Fecha de SQL (ya formateada): ${configuracion.PublishedDate}`);
-    
+
     console.log(`[OBTENER_CONFIG] Configuración encontrada:`, configuracion);
 
     // Obtener OAs desde la nueva tabla correcta: AssessmentObjective
@@ -1059,9 +1060,37 @@ exports.obtenerConfiguracionColumna = async (req, res) => {
         WHERE AO.AssessmentId = @assessmentId
       `);
 
+    // --- INICIO MODIFICACIÓN: Obtener los subtests asociados ---
+    let subtestsResult = { recordset: [] }; // Inicializar con un recordset vacío por defecto
+
+    // Solo intentar obtener subtests si la nota es de tipo acumulativa (RefAssessmentSubtestTypeId === 2)
+    if (configuracion.RefAssessmentSubtestTypeId === 2) {
+        console.log(`[OBTENER_CONFIG] El tipo de nota es acumulativa (${configuracion.RefAssessmentSubtestTypeId}). Buscando subtests...`);
+
+        subtestsResult = await pool.request()
+            .input('assessmentId', sql.Int, assessmentId)
+            .query(`
+              SELECT
+                ast.AssessmentSubtestId,
+                ast.Identifier
+              FROM AssessmentSubtest ast
+              INNER JOIN AssessmentForm af ON ast.AssessmentFormId = af.AssessmentFormId
+              WHERE af.AssessmentId = @assessmentId
+              ORDER BY ast.Identifier -- Ordenar por Identifier (SUB1, SUB2, etc.)
+            `);
+        console.log(`[OBTENER_CONFIG] Subtests encontrados:`, subtestsResult.recordset);
+    } else {
+         console.log(`[OBTENER_CONFIG] El tipo de nota no es acumulativa (${configuracion.RefAssessmentSubtestTypeId}). No se buscan subtests.`);
+    }
+    // --- FIN MODIFICACIÓN ---
+
+
     const configuracionCompleta = {
       ...configuracion,
-      objetivos: objetivosResult.recordset
+      objetivos: objetivosResult.recordset,
+      // --- INICIO MODIFICACIÓN: Añadir los subtests a la respuesta ---
+      subtests: subtestsResult.recordset // Añadir el array de subtests
+      // --- FIN MODIFICACIÓN ---
     };
 
     console.log(`[OBTENER_CONFIG] Enviando configuración completa:`, configuracionCompleta);
@@ -1834,12 +1863,17 @@ exports.getNotasAcumuladas = async (req, res) => {
 exports.crearAssessmentRegistrations = async (req, res) => {
   const { assessmentId, estudiantes } = req.body;
 
-  if (!assessmentId || !Array.isArray(estudiantes)) {
-    return res.status(400).json({ error: 'Datos incompletos' });
+  console.log(`[CREAR_REGISTRATIONS] Recibidos: assessmentId=${assessmentId}, estudiantes count=${estudiantes?.length || 0}`);
+
+  if (!assessmentId || !Array.isArray(estudiantes) || estudiantes.length === 0) {
+    console.error(`[CREAR_REGISTRATIONS] Datos incompletos o array de estudiantes vacío.`);
+    return res.status(400).json({ error: 'Datos incompletos o array de estudiantes vacío' });
   }
 
   const pool = await poolPromise;
   const tx = new sql.Transaction(pool);
+
+  const resultadosRegistros = []; // Array para almacenar los IDs de los registros procesados
 
   try {
     await tx.begin();
@@ -1850,69 +1884,178 @@ exports.crearAssessmentRegistrations = async (req, res) => {
       .input('assessmentId', sql.Int, assessmentId)
       .query(`
         SELECT TOP 1 aa.AssessmentAdministrationId
-        FROM Assessment_AssessmentAdministration aa
-        WHERE aa.AssessmentId = @assessmentId
+        FROM AssessmentAdministration aa
+        INNER JOIN Assessment_AssessmentAdministration aaa ON aa.AssessmentAdministrationId = aaa.AssessmentAdministrationId
+        WHERE aaa.AssessmentId = @assessmentId
       `);
 
+    let assessmentAdministrationId;
+
     if (resultAdmin.recordset.length === 0) {
-      throw new Error(`No se encontró AssessmentAdministration para el assessmentId ${assessmentId}`);
+       console.warn(`[CREAR_REGISTRATIONS] No se encontró AssessmentAdministration para el assessmentId ${assessmentId}. Intentando encontrar huérfana o crear una.`);
+
+       // Si no se encuentra ligada, intentar encontrar una AssessmentAdministration huérfana o crear una nueva
+       const orphanAdminResult = await new sql.Request(tx)
+          .query(`
+              SELECT TOP 1 aa.AssessmentAdministrationId
+              FROM AssessmentAdministration aa
+              LEFT JOIN Assessment_AssessmentAdministration aaa ON aa.AssessmentAdministrationId = aaa.AssessmentAdministrationId
+              WHERE aaa.AssessmentId IS NULL -- Buscar admins sin un enlace de Assessment_AssessmentAdministration
+              ORDER BY aa.AssessmentAdministrationId DESC -- O tomar la más reciente si hay varias
+          `);
+
+       if (orphanAdminResult.recordset.length > 0) {
+           assessmentAdministrationId = orphanAdminResult.recordset[0].AssessmentAdministrationId;
+           console.log(`[CREAR_REGISTRATIONS] Encontrada AssessmentAdministrationId huérfana: ${assessmentAdministrationId}. Creando enlace.`);
+           // Crear la relación Assessment_AssessmentAdministration
+           await new sql.Request(tx)
+               .input('assessmentId', sql.Int, assessmentId)
+               .input('adminId', sql.Int, assessmentAdministrationId)
+               .query(`
+                   INSERT INTO Assessment_AssessmentAdministration (AssessmentId, AssessmentAdministrationId)
+                   VALUES (@assessmentId, @adminId)
+               `);
+       } else {
+            console.log(`[CREAR_REGISTRATIONS] No se encontró AssessmentAdministrationId huérfana, creando nueva Admin y enlace.`);
+             const insertAdminResult = await new sql.Request(tx)
+               .query(`
+                 INSERT INTO AssessmentAdministration (AdministrationDate) -- Puedes añadir StartDate si es necesario
+                 OUTPUT INSERTED.AssessmentAdministrationId
+                 VALUES (GETDATE())
+               `);
+
+             if (insertAdminResult.recordset.length > 0) {
+               assessmentAdministrationId = insertAdminResult.recordset[0].AssessmentAdministrationId;
+               // Crear la relación Assessment_AssessmentAdministration
+               await new sql.Request(tx)
+                 .input('assessmentId', sql.Int, assessmentId)
+                 .input('adminId', sql.Int, assessmentAdministrationId)
+                 .query(`
+                   INSERT INTO Assessment_AssessmentAdministration (AssessmentId, AssessmentAdministrationId)
+                   VALUES (@assessmentId, @adminId)
+                 `);
+               console.log(`[CREAR_REGISTRATIONS] Creado nuevo AssessmentAdministrationId: ${assessmentAdministrationId} y enlace.`);
+             } else {
+               console.error(`[ERROR CREAR_REGISTRATIONS] No se pudo crear AssessmentAdministration.`);
+                await tx.rollback(); // Rollback si no se pudo crear la administración
+                return res.status(500).json({ error: `No se pudo encontrar o crear AssessmentAdministration para assessmentId ${assessmentId}` });
+             }
+       }
+
+    } else {
+        assessmentAdministrationId = resultAdmin.recordset[0].AssessmentAdministrationId;
+        console.log(`[CREAR_REGISTRATIONS] Usando AssessmentAdministrationId existente: ${assessmentAdministrationId}`);
     }
 
-    const assessmentAdministrationId = resultAdmin.recordset[0].AssessmentAdministrationId;
+    // Verificar si se obtuvo un assessmentAdministrationId válido
+    if (!assessmentAdministrationId) {
+         console.error(`[ERROR CREAR_REGISTRATIONS] assessmentAdministrationId es null o undefined después de buscar/crear.`);
+         await tx.rollback();
+         return res.status(500).json({ error: `No se pudo obtener o crear AssessmentAdministration para assessmentId ${assessmentId}` });
+    }
 
+
+    // Iterar sobre cada estudiante para verificar/crear AssessmentRegistration
     for (const est of estudiantes) {
-      if (!est.personId || !est.courseSectionOrgId || !est.assignedBy) {
-        console.warn(`[WARN crearAssessmentRegistrations] Estudiante omitido por datos incompletos: ${JSON.stringify(est)}`);
-        continue;
+      // Asegurarse de tener los datos mínimos del estudiante
+      if (!est.personId || !est.organizationPersonRoleId) {
+        console.warn(`[WARN CREAR_REGISTRATIONS] Estudiante omitido por datos incompletos (personId o organizationPersonRoleId faltantes): ${JSON.stringify(est)}`);
+        continue; // Saltar este estudiante
       }
 
       const requestCheck = new sql.Request(tx);
       const check = await requestCheck
         .input('personId', sql.Int, est.personId)
-        .input('asignaturaId', sql.Int, est.courseSectionOrgId)
+        .input('adminId', sql.Int, assessmentAdministrationId)
+         // Se puede añadir filtro por OrganizationId o CourseSectionOrganizationId si es necesario para más precisión
         .query(`
           SELECT AssessmentRegistrationId
           FROM AssessmentRegistration
           WHERE PersonId = @personId
-            AND CourseSectionOrganizationId = @asignaturaId
+            AND AssessmentAdministrationId = @adminId
+           -- AND OrganizationId = @cursoId -- Si es relevante filtrar
+           -- AND CourseSectionOrganizationId = @asignaturaId -- Si es relevante filtrar
         `);
 
-      if (check.recordset.length === 0) {
+      let registrationId;
+
+      if (check.recordset.length > 0) {
+        // Registro existente encontrado
+        registrationId = check.recordset[0].AssessmentRegistrationId;
+        console.log(`[CREAR_REGISTRATIONS] Registro existente encontrado para PersonId ${est.personId}: ${registrationId}`);
+      } else {
+        // Crear nuevo registro
         const requestInsert = new sql.Request(tx);
-        await requestInsert
-          .input('assessmentAdministrationId', sql.Int, assessmentAdministrationId)
-          .input('courseSectionOrgId', sql.Int, est.courseSectionOrgId)
+         // Necesitamos CourseSectionOrganizationId (asignaturaId) y OrganizationId (cursoId) para crear
+         // Estos IDs DEBERÍAN venir en el objeto del estudiante desde el frontend si se cargó correctamente la lista de estudiantes
+         if (!est.cursoId || !est.asignaturaId) {
+              console.error(`[ERROR CREAR_REGISTRATIONS] No se puede crear AssessmentRegistration para PersonId ${est.personId}: Faltan cursoId o asignaturaId en el objeto estudiante.`);
+              // No podemos crear el registro, lo omitimos y registramos el error
+              continue;
+         }
+
+        const insertResult = await requestInsert
+          .input('adminId', sql.Int, assessmentAdministrationId)
+          .input('oprId', sql.Int, est.organizationPersonRoleId)
           .input('personId', sql.Int, est.personId)
-          .input('assignedBy', sql.Int, est.assignedBy)
-          .input('anio', sql.Int, 1) // Puede ajustarse si se desea usar dinámicamente el año escolar
+          .input('cursoId', sql.Int, est.cursoId) // Usar cursoId del estudiante si viene
+          .input('asignaturaId', sql.Int, est.asignaturaId) // Usar asignaturaId del estudiante si viene
           .query(`
             INSERT INTO AssessmentRegistration (
               AssessmentAdministrationId,
-              CourseSectionOrganizationId,
+              OrganizationPersonRoleId,
               PersonId,
-              AssignedByPersonId,
-              SchoolFullAcademicYear,
+              OrganizationId, -- Mapping cursoId
+              CourseSectionOrganizationId, -- Mapping asignaturaId
               CreationDate
             )
+            OUTPUT INSERTED.AssessmentRegistrationId
             VALUES (
-              @assessmentAdministrationId,
-              @courseSectionOrgId,
+              @adminId,
+              @oprId,
               @personId,
-              @assignedBy,
-              @anio,
+              @cursoId,
+              @asignaturaId,
               GETDATE()
             )
           `);
+
+        registrationId = insertResult.recordset[0].AssessmentRegistrationId;
+        console.log(`[CREAR_REGISTRATIONS] Nuevo registro creado para PersonId ${est.personId}: ${registrationId}`);
+      }
+
+      // Añadir el resultado (ID y datos del estudiante) al array para la respuesta
+      if (registrationId !== undefined && registrationId !== null) {
+          resultadosRegistros.push({
+              assessmentRegistrationId: registrationId,
+              personId: est.personId,
+              organizationPersonRoleId: est.organizationPersonRoleId // Incluir OPRId también
+               // Puedes incluir otros datos del estudiante si el frontend los necesita inmediatamente (nombre, etc.)
+          });
+      } else {
+           console.error(`[ERROR CREAR_REGISTRATIONS] registrationId es nulo después de buscar/crear para PersonId ${est.personId}. No se añadió a los resultados.`);
       }
     }
 
     await tx.commit();
-    res.json({ message: 'Registros verificados/insertados correctamente' });
+    console.log(`[CREAR_REGISTRATIONS] Proceso completado. Registros procesados: ${resultadosRegistros.length}`);
+
+    // --- INICIO MODIFICACIÓN: Devolver el array de resultados ---
+    res.status(200).json({
+        success: true,
+        message: 'Registros verificados/insertados correctamente',
+        registrations: resultadosRegistros // Devolver el array con los IDs y datos del estudiante
+    });
+    // --- FIN MODIFICACIÓN ---
 
   } catch (error) {
     await tx.rollback();
-    console.error('[ERROR crearAssessmentRegistrations]', error);
-    res.status(500).json({ error: 'Error al registrar estudiantes en evaluación' });
+    console.error('[ERROR CREAR_REGISTRATIONS][TRANSACCION FALLIDA]', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al procesar registros de evaluación',
+      error: error.message || error
+    });
   }
 };
 
