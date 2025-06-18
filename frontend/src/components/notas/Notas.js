@@ -631,7 +631,8 @@ useEffect(() => {
       cargarOAs();
     }
   }, [visible, cursoId, asignaturaId]);
-  
+
+
   const handleGuardarConfiguracion = async () => {
     if (!assessmentId) {
       console.error("No hay assessmentId");
@@ -852,37 +853,10 @@ useEffect(() => {
 
      });
    }
- }; // <-- **FIN DE LA FUNCIÓN handleGuardarConfiguracion**
+ };
+
 
             
-            console.log("[DEBUG] Respuesta al guardar subnotas:", respuesta.data);
-          } catch (error) {
-            console.error("[ERROR] Error al guardar subnotas:", error);
-            Swal.fire({
-              icon: 'warning',
-              title: 'Advertencia',
-              text: 'La configuración se guardó, pero hubo un problema al guardar las subnotas.',
-            });
-          }
-        }
-        
-        onClose();
-      } else {
-        Swal.fire({
-          icon: 'error',
-          title: 'Error',
-          text: 'No se pudo guardar la configuración. Intente nuevamente.',
-        });
-      }
-    } catch (error) {
-      console.error("[ERROR] Error al guardar configuración:", error);
-      Swal.fire({
-        icon: 'error',
-        title: 'Error',
-        text: 'Ocurrió un error al guardar la configuración.',
-      });
-    }
-  };
 
 
   const handleAgregarOA = () => {
