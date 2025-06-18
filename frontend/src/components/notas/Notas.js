@@ -122,9 +122,13 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
     
     // CORRECCIÓN CRÍTICA: Manejo de fecha sin conversiones de zona horaria
     if (configuracion.PublishedDate) {
-      // Usar la fecha tal como viene del backend (ya formateada como YYYY-MM-DD)
-      console.log("[DEBUG FECHA] Fecha original de BD en obtenerConfiguracionColumna:", configuracion.PublishedDate);
-      setFechaEvaluacion(configuracion.PublishedDate);
+      // Mostrar la fecha exactamente como viene de la BD sin conversiones
+      const fechaOriginal = configuracion.PublishedDate;
+      console.log("[DEBUG FECHA] Fecha original de BD:", fechaOriginal);
+      
+      // Usar directamente la fecha tal como viene del backend
+      setFechaEvaluacion(fechaOriginal);
+      console.log("[DEBUG FECHA] Fecha establecida en el estado:", fechaOriginal);
     } else {
       setFechaEvaluacion(dayjs().format('YYYY-MM-DD'));
     }
@@ -277,14 +281,9 @@ useEffect(() => {
                 const fechaOriginal = configColumna.PublishedDate;
                 console.log("[DEBUG FECHA] Fecha original de BD:", fechaOriginal);
                 
-                // Extraer solo la parte de la fecha (YYYY-MM-DD) sin conversiones
-                let fechaCorrecta = fechaOriginal;
-                if (fechaOriginal.includes('T')) {
-                    fechaCorrecta = fechaOriginal.split('T')[0];
-                }
-                
-                console.log("[DEBUG FECHA] Fecha extraída sin conversiones:", fechaCorrecta);
-                setFechaEvaluacion(fechaCorrecta);
+                // Usar directamente la fecha tal como viene del backend (ya formateada como YYYY-MM-DD)
+                setFechaEvaluacion(fechaOriginal);
+                console.log("[DEBUG FECHA] Fecha establecida en el estado:", fechaOriginal);
             } else {
                 setFechaEvaluacion(dayjs().format('YYYY-MM-DD'));
             }
@@ -557,7 +556,7 @@ useEffect(() => {
     console.log("[REINICIO MODAL] Aplicando configuración al mostrar modal");
 
     setDescripcion(configColumna.Description || '');
-    setFechaEvaluacion(configColumna.PublishedDate ? dayjs(configColumna.PublishedDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'));
+    setFechaEvaluacion(configColumna.PublishedDate || dayjs().format('YYYY-MM-DD'));
     setEscala(configColumna.RefScoreMetricTypeId?.toString() || '');
  
    // REMOVIDO: setEvaluacion se maneja en useEffect consolidado
@@ -636,433 +635,88 @@ useEffect(() => {
   
 
   const handleGuardarConfiguracion = async () => {
-  try {
-    const usuario = RoleService.getUsuario();
-    const usuarioId = usuario?.authId || usuario?.AuthId;
-
-    if (!usuarioId) {
-      console.error('[ERROR] Usuario no autenticado al registrar cambios de configuración');
-      Swal.fire('Error', 'Debe iniciar sesión para registrar cambios.', 'error');
-      return;
-    }
-	
-	
-	if (!evaluacion || !escala) {
-      Swal.fire('Campos incompletos', 'Debes seleccionar tipo de evaluación y escala.', 'warning');
+    if (!assessmentId) {
+      console.error("No hay assessmentId");
       return;
     }
 
-    if (!fechaEvaluacion) {
-      Swal.fire('Fecha requerida', 'Debes seleccionar una fecha de evaluación.', 'warning');
-      return;
-    }
-
-    // Capturar valores anteriores para el log
-    const valoresAnteriores = {
-      descripcion: configColumna?.Description || '',
-      tipoEvaluacionId: configColumna?.RefAssessmentTypeId || '',
-      tipoNotaId: configColumna?.RefAssessmentSubtestTypeId || '',
-      escalaId: configColumna?.RefScoreMetricTypeId || '',
-      ponderacion: configColumna?.WeightPercent || 0,
-      excluirPromedio: configColumna?.Tier || 0,
-      fecha: configColumna?.PublishedDate || ''
-    };
-
-    // Valores nuevos - asegurar que la fecha esté en formato YYYY-MM-DD sin conversiones
-    const valoresNuevos = {
-      descripcion: descripcion,
-      tipoEvaluacionId: parseInt(evaluacion),
-      tipoNotaId: parseInt(tipoColumna),
-      escalaId: parseInt(escala),
-      ponderacion: parseFloat(ponderacion) || 0,
-      excluirPromedio: noInfluye ? 1 : 0,
-      fecha: fechaEvaluacion // Ya está en formato YYYY-MM-DD
-    };
-
-    console.log("[DEBUG] Valores nuevos a guardar:", valoresNuevos);
-    
-    // Verificar si estamos cambiando de tipo Directa (1) a Acumulativa (2)
-    const cambiandoAcumulativa = valoresAnteriores.tipoNotaId !== 2 && valoresNuevos.tipoNotaId === 2;
-    
-    if (cambiandoAcumulativa) {
-      console.log('[DEBUG] Detectado cambio a tipo Acumulativa. Preparando registros...');
+    try {
+      let fechaFormateada = fechaEvaluacion;
       
-      // Confirmar con el usuario
-      const confirmResult = await Swal.fire({
-        title: 'Cambio a Acumulativa',
-        text: 'Estás cambiando esta columna a tipo Acumulativa. Se perderán las notas directas existentes. ¿Deseas continuar?',
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonText: 'Sí, continuar',
-        cancelButtonText: 'Cancelar'
-      });
-      
-      if (!confirmResult.isConfirmed) {
-        return;
-      }
-      
-      // PASO 1: Primero guardar la configuración básica
-      // Asegurarnos de que tenemos el assessmentId correcto
-      const actualAssessmentId = assessmentId || configColumna?.AssessmentId;
-      
-      console.log('[DEBUG] Enviando configuración con assessmentId:', actualAssessmentId);
-      
-      await axios.post('http://localhost:5000/api/notas/configurar-columna', {
-        assessmentId: actualAssessmentId,
-        identifier: columna,
-        title: `Subevaluación ${columna}`,
-        descripcion: descripcion,
-        tipoEvaluacionId: valoresNuevos.tipoEvaluacionId,
-        tipoNotaId: valoresNuevos.tipoNotaId,
-        escalaId: valoresNuevos.escalaId,
-        ponderacion: valoresNuevos.ponderacion,
-        excluirPromedio: valoresNuevos.excluirPromedio,
-        fecha: valoresNuevos.fecha,
-        objetivos: oasAgregados.map(oa => oa.LearningObjectiveId),
-        usuarioId
-      });
-      
-      // PASO 2: Limpiar datos previos
-      try {
-        await axios.delete(`http://localhost:5000/api/notas/limpiar-datos-previos`, {
-          data: {
-            assessmentId: actualAssessmentId,
-            cursoId: cursoId,
-            asignaturaId: asignaturaId,
-            columna
-          }
-        });
-        console.log('[DEBUG] Datos previos limpiados correctamente');
-      } catch (cleanError) {
-        console.warn('[WARN] Error al limpiar datos previos:', cleanError);
-      }
-      
-      // PASO 3: Obtener estudiantes del curso
-      console.log('[DEBUG] Obteniendo estudiantes del curso...');
-      const resEstudiantes = await axios.get(`http://localhost:5000/api/notas/estudiantes/${cursoId}`);
-      const estudiantesCurso = resEstudiantes.data;
-      
-      if (!estudiantesCurso || estudiantesCurso.length === 0) {
-        Swal.fire('Error', 'No se encontraron estudiantes en el curso.', 'error');
-        return;
-      }
-      
-      console.log(`[DEBUG] Estudiantes encontrados: ${estudiantesCurso.length}`);
-      
-      // PASO 4: Crear registros AssessmentRegistration para los estudiantes
-      const estudiantesParaRegistro = estudiantesCurso.map(est => ({
-        personId: est.PersonId,
-        organizationId: cursoId,
-        courseSectionOrgId: asignaturaId
-      }));
-      
-      try {
-        const res = await axios.post('http://localhost:5000/api/notas/crear-assessment-registrations', {
-          assessmentId: actualAssessmentId,
-          estudiantes: estudiantesParaRegistro
-        });
-        
-        console.log('[DEBUG] Registros creados en AssessmentRegistration:', res.data);
-        
-        // Éxito
-        Swal.fire('Éxito', 'Columna configurada como Acumulativa correctamente', 'success');
-        onClose();
-        return;
-      } catch (err) {
-        console.error('[ERROR] al crear registros para Acumulativa:', err);
-        Swal.fire('Error', 'No se pudo completar el cambio a Acumulativa. Intente nuevamente.', 'error');
-        return;
-      }
-    }
-
-    // Registrar cambios en el log (antes de guardar)
-    if (configColumna && assessmentId) {
-      // Formatear fechas para comparación consistente
-      const formatearFecha = (fecha) => {
-        if (!fecha) return '';
-        // Normalizar formato de fecha para comparación - extraer solo YYYY-MM-DD
-        try {
-          // Si la fecha tiene formato ISO, extraer solo la parte de la fecha
-          if (fecha.includes('T')) {
-            return fecha.split('T')[0];
-          }
-          // Si ya es YYYY-MM-DD, devolverla tal cual
-          if (/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
-            return fecha;
-          }
-          // Otros formatos, intentar convertir con dayjs
-          return dayjs(fecha).format('YYYY-MM-DD');
-        } catch (e) {
-          console.error("[ERROR FECHA] Error al formatear fecha:", e);
-          return fecha;
-        }
-      };
-      
-      const fechaAnteriorFormateada = formatearFecha(valoresAnteriores.fecha);
-      const fechaNuevaFormateada = formatearFecha(valoresNuevos.fecha);
-      
-      console.log("[DEBUG FECHAS] Fecha anterior (original):", valoresAnteriores.fecha);
-      console.log("[DEBUG FECHAS] Fecha anterior (formateada):", fechaAnteriorFormateada);
-      console.log("[DEBUG FECHAS] Fecha nueva (original):", valoresNuevos.fecha);
-      console.log("[DEBUG FECHAS] Fecha nueva (formateada):", fechaNuevaFormateada);
-      console.log("[DEBUG FECHAS] ¿Son iguales?", fechaAnteriorFormateada === fechaNuevaFormateada);
-
-      const cambios = [
-        {
-          campo: 'Description',
-          valorAnterior: valoresAnteriores.descripcion,
-          valorNuevo: valoresNuevos.descripcion,
-          descripcion: 'Descripción'
-        },
-        {
-          campo: 'RefAssessmentPurposeId',
-          valorAnterior: valoresAnteriores.tipoEvaluacionId,
-          valorNuevo: valoresNuevos.tipoEvaluacionId,
-          descripcion: 'Tipo de Evaluación',
-          mapearValor: (val) => {
-            const tipo = tiposEvaluacion.find(t => t.id == val);
-            return tipo?.Description || val;
-          }
-        },
-        {
-          campo: 'RefAssessmentSubtestTypeId',
-          valorAnterior: valoresAnteriores.tipoNotaId,
-          valorNuevo: valoresNuevos.tipoNotaId,
-          descripcion: 'Tipo de Nota',
-          mapearValor: (val) => {
-            const tipos = { 1: 'Directa', 2: 'Acumulativa', 3: 'Vinculada' };
-            return tipos[val] || val;
-          }
-        },
-        {
-          campo: 'RefScoreMetricTypeId',
-          valorAnterior: valoresAnteriores.escalaId,
-          valorNuevo: valoresNuevos.escalaId,
-          descripcion: 'Escala',
-          mapearValor: (val) => {
-            const escala = escalas.find(e => e.id == val);
-            return escala?.Description || val;
-          }
-        },
-        {
-          campo: 'WeightPercent',
-          valorAnterior: valoresAnteriores.ponderacion,
-          valorNuevo: valoresNuevos.ponderacion,
-          descripcion: 'Ponderación'
-        },
-        {
-          campo: 'Tier',
-          valorAnterior: valoresAnteriores.excluirPromedio,
-          valorNuevo: valoresNuevos.excluirPromedio,
-          descripcion: 'No influye en promedio',
-          mapearValor: (val) => val ? 'Sí' : 'No'
-        },
-        {
-          campo: 'PublishedDate',
-          valorAnterior: fechaAnteriorFormateada,
-          valorNuevo: fechaNuevaFormateada,
-          descripcion: 'Fecha evaluación'
-        }
-      ];
-
-      // Registrar solo los cambios reales
-      for (const cambio of cambios) {
-        // Solo registrar si realmente hubo un cambio
-        if (String(cambio.valorAnterior) !== String(cambio.valorNuevo)) {
-          console.log(`[DEBUG CAMBIO] Campo ${cambio.descripcion}: ${cambio.valorAnterior} → ${cambio.valorNuevo}`);
-          try {
-            await axios.post('http://localhost:5000/api/notas/log-cambio-columna', {
-              assessmentSubtestId: configColumna.AssessmentSubtestId,
-              campo: cambio.campo,
-              valorAnterior: cambio.valorAnterior,
-              valorNuevo: cambio.valorNuevo,
-              usuarioId,
-              campoDescripcion: cambio.descripcion,
-              valorAnteriorDescripcion: cambio.mapearValor ? cambio.mapearValor(cambio.valorAnterior) : cambio.valorAnterior,
-              valorNuevoDescripcion: cambio.mapearValor ? cambio.mapearValor(cambio.valorNuevo) : cambio.valorNuevo
-            });
-          } catch (logError) {
-            console.error('Error al registrar cambio:', logError);
-          }
-        } else {
-          console.log(`[DEBUG CAMBIO] Campo ${cambio.descripcion} sin cambios`);
-        }
-      }
-    }
-
-    // Guardar configuración - asegurar que la fecha se envía en formato YYYY-MM-DD
-    console.log("[DEBUG GUARDAR] Enviando fecha:", valoresNuevos.fecha);
-    
-    await axios.post('http://localhost:5000/api/notas/configurar-columna', {
-      assessmentId,
-      identifier: columna,
-      title: `Subevaluación ${columna}`,
-      descripcion: descripcion,
-      tipoEvaluacionId: valoresNuevos.tipoEvaluacionId,
-      tipoNotaId: valoresNuevos.tipoNotaId,
-      escalaId: valoresNuevos.escalaId,
-      ponderacion: valoresNuevos.ponderacion,
-      excluirPromedio: valoresNuevos.excluirPromedio,
-      fecha: valoresNuevos.fecha, // Ya está en formato YYYY-MM-DD
-      objetivos: oasAgregados.map(oa => oa.LearningObjectiveId),
-      usuarioId
-    });
-
-    console.log('[DEBUG] Intentando guardar configuración acumulativa con subnotas:', subnotas);
-
-    // Dentro de handleGuardarConfiguracion, después de guardar la configuración
-    // Guardar notas acumulativas si es tipo 2
-    if (parseInt(tipoColumna) === 2) {
-      console.log('[DEBUG] Guardando notas acumulativas...');
-      
-      // Verificar si tenemos assessmentRegistrationId para todos los estudiantes
-      // Si no, debemos crearlos primero
-      const faltanRegistros = subnotas.some(alumno => !alumno.assessmentRegistrationId);
-      
-      if (faltanRegistros) {
-        console.log('[DEBUG] Faltan registros de inscripción, creando...');
-        
-        try {
-          // Obtener el AssessmentAdministrationId correspondiente
-          const adminRes = await axios.get(`http://localhost:5000/api/notas/assessment-administration/${assessmentId}`);
-          const assessmentAdministrationId = adminRes.data.assessmentAdministrationId;
-          
-          if (!assessmentAdministrationId) {
-            throw new Error('No se pudo obtener el AssessmentAdministrationId');
-          }
-          
-          console.log(`[DEBUG] AssessmentAdministrationId obtenido: ${assessmentAdministrationId}`);
-          
-          // Crear registros faltantes
-          const nuevasSubnotas = [...subnotas];
-          
-          for (let i = 0; i < nuevasSubnotas.length; i++) {
-            const alumno = nuevasSubnotas[i];
-            
-            if (!alumno.assessmentRegistrationId && alumno.organizationPersonRoleId) {
-              console.log(`[DEBUG] Creando registro para estudiante ${alumno.nombre} con ID ${alumno.organizationPersonRoleId}`);
-              
-              try {
-                const regRes = await axios.post('http://localhost:5000/api/notas/crear-registro', {
-                  assessmentAdministrationId,
-                  organizationPersonRoleId: alumno.organizationPersonRoleId,
-                  cursoId,
-                  asignaturaId
-                });
-                
-                if (regRes.data && regRes.data.assessmentRegistrationId) {
-                  nuevasSubnotas[i].assessmentRegistrationId = regRes.data.assessmentRegistrationId;
-                  console.log(`[DEBUG] Registro creado con ID ${regRes.data.assessmentRegistrationId}`);
-                }
-              } catch (regError) {
-                console.error(`[ERROR] No se pudo crear registro para estudiante ${alumno.nombre}:`, regError);
-              }
-            }
-          }
-          
-          // Actualizar subnotas con los nuevos registros
-          setSubnotas(nuevasSubnotas);
-          
-          // Continuar con las subnotas actualizadas
-          console.log('[DEBUG] Subnotas actualizadas con registros:', nuevasSubnotas);
-        } catch (error) {
-          console.error('[ERROR] Error al crear registros de inscripción:', error);
-          Swal.fire('Error', 'Faltan registros de inscripción para algunos estudiantes. Intente actualizar la lista.', 'error');
-          return;
-        }
+      // La fecha ya debe venir en formato YYYY-MM-DD desde el input type="date"
+      // No necesitamos convertirla, solo verificamos que tenga el formato correcto
+      if (fechaEvaluacion && fechaEvaluacion.includes('-')) {
+        console.log("[DEBUG FECHA] Fecha para BD:", fechaFormateada);
       }
 
-      // Validar subnotas completas
-      if (!validarSubnotasCompletas()) {
-        console.warn('[WARN] Subnotas incompletas. Revisión:', subnotas);
-        
-        // Preguntar al usuario si desea continuar a pesar de tener subnotas incompletas
-        const confirmResult = await Swal.fire({
-          title: 'Campos incompletos',
-          text: 'Hay subnotas sin completar. ¿Deseas guardar solo la configuración y completar las notas más tarde?',
-          icon: 'question',
-          showCancelButton: true,
-          confirmButtonText: 'Sí, guardar configuración',
-          cancelButtonText: 'Cancelar'
-        });
-        
-        if (!confirmResult.isConfirmed) {
-          return;
-        }
-        
-        // Si el usuario confirma, continuamos con el guardado sin las subnotas
-        console.log('[INFO] Usuario eligió guardar configuración sin subnotas completas');
-      }
-
-      // Preparar el payload para enviar al backend
       const payload = {
         assessmentId: assessmentId,
-        fecha: fechaEvaluacion,
-        cursoId: cursoId,
-        asignaturaId: asignaturaId,
-        subnotas: subnotas.map(alumno => ({
-          assessmentRegistrationId: alumno.assessmentRegistrationId,
-          notas: alumno.notas,
-          pesos: alumno.pesos,
-          promedio: alumno.promedio,
-          organizationPersonRoleId: alumno.organizationPersonRoleId || null
-        }))
+        title: columna || '',
+        descripcion: descripcion || '',
+        tipoEvaluacionId: evaluacion || null,
+        tipoNotaId: tipoColumna || 1,
+        escalaId: escala || null,
+        ponderacion: ponderacion || 0,
+        excluirPromedio: noInfluye ? 1 : 0,
+        fecha: fechaFormateada,
+        objetivos: oasAgregados.map(oa => oa.LearningObjectiveId),
+        usuarioId: 1
       };
 
-      // Asegurar que assessmentId nunca sea null o undefined
-      payload.assessmentId = payload.assessmentId || assessmentId;
-      
-      // Asegurarse de que el ID sea un número
-      payload.assessmentId = parseInt(payload.assessmentId);
-      
-      console.log(`[DEBUG DINAMICO] Usando AssessmentId ${payload.assessmentId} para columna ${columna}`);
-      console.log('[DEBUG] Payload enviado al backend:', payload);
+      console.log("[DEBUG] Enviando configuración:", payload);
 
-      try {
-        console.log('[DEBUG] Enviando payload al backend:', JSON.stringify(payload));
-        const res = await axios.post('http://localhost:5000/api/notas/notas-acumuladas/guardar', payload);
-        console.log('[DEBUG] Respuesta backend acumulativas:', res.data);
+      const response = await axios.post('http://localhost:5000/api/notas/configurar-columna', payload);
+
+      if (response.data.success) {
+        Swal.fire({
+          icon: 'success',
+          title: 'Configuración guardada',
+          text: 'La configuración de la columna se guardó correctamente.',
+          timer: 2000,
+          showConfirmButton: false
+        });
         
-        if (res.data && res.data.success) {
-          Swal.fire('Éxito', 'Notas acumulativas guardadas correctamente', 'success');
+        // Si es tipo acumulativa, guardar también las subnotas
+        if (tipoColumna === '2' && subnotas.length > 0) {
+          console.log("[DEBUG] Guardando subnotas para columna acumulativa");
           
-          // Recargar las notas para actualizar la tabla principal
           try {
-            const resNotas = await axios.get(`http://localhost:5000/api/notas/leer`, {
-              params: {
-                cursoId: cursoId,
-                asignaturaId: asignaturaId,
-                periodoId: window.periodoSeleccionado || 1
-              }
+            const respuesta = await axios.post('http://localhost:5000/api/notas/notas-acumuladas/guardar', {
+              assessmentId: assessmentId,
+              fecha: fechaFormateada,
+              cursoId,
+              asignaturaId,
+              subnotas
             });
             
-            // Si estamos en el componente principal de Notas, actualizar el estado
-            if (window.actualizarNotasEnTabla && typeof window.actualizarNotasEnTabla === 'function') {
-              window.actualizarNotasEnTabla(resNotas.data);
-            }
-            
-            console.log('[DEBUG] Notas actualizadas en tabla principal después de guardar acumulativas');
-          } catch (updateError) {
-            console.warn('[WARN] No se pudo actualizar la tabla principal:', updateError);
+            console.log("[DEBUG] Respuesta al guardar subnotas:", respuesta.data);
+          } catch (error) {
+            console.error("[ERROR] Error al guardar subnotas:", error);
+            Swal.fire({
+              icon: 'warning',
+              title: 'Advertencia',
+              text: 'La configuración se guardó, pero hubo un problema al guardar las subnotas.',
+            });
           }
-        } else {
-          throw new Error(res.data.message || 'Error desconocido al guardar notas acumulativas');
         }
-      } catch (error) {
-        console.error('[ERROR] Fallo al guardar notas acumulativas:', error);
-        Swal.fire('Error', 'No se pudieron guardar las notas acumulativas. ' + (error.message || ''), 'error');
-        return;
+        
+        onClose();
+      } else {
+        Swal.fire({
+          icon: 'error',
+          title: 'Error',
+          text: 'No se pudo guardar la configuración. Intente nuevamente.',
+        });
       }
+    } catch (error) {
+      console.error("[ERROR] Error al guardar configuración:", error);
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: 'Ocurrió un error al guardar la configuración.',
+      });
     }
-
-    Swal.fire('Éxito', 'Columna configurada correctamente', 'success');
-    onClose();
-  } catch (err) {
-    const errorMsg = err?.response?.data?.error || 'No se pudo guardar la configuración';
-    Swal.fire('Error', errorMsg, 'error');
-    console.error('[ERROR] al guardar configuración:', err);
-  }
-};
+  };
 
 
   const handleAgregarOA = () => {
@@ -1487,7 +1141,12 @@ const confirmarCambioTipo = async (nuevoValor) => {
       {/* Datos generales */}
       <div className="modal-row">
         <label>Fecha evaluación:</label>
-        <input type="date" className="form-control" value={fechaEvaluacion} onChange={e => setFechaEvaluacion(e.target.value)} />
+        <input 
+          type="date" 
+          className="form-control" 
+          value={fechaEvaluacion} 
+          onChange={e => setFechaEvaluacion(e.target.value)} 
+        />
         <label>Tipo evaluación:</label>
         <select 
           className="form-control" 
@@ -2099,7 +1758,7 @@ const Notas = () => {
               periodoId: parseInt(periodoSeleccionado),
               assignedByPersonId,
               estudiantes: estudiantesOrdenados.map(e => ({ PersonId: e.PersonId })),
-			  fechaEvaluacion: dayjs().format('YYYY-MM-DD')
+			  fechaEvaluacion: dayjs().format('DD-MM-YYYY')
 
             };
             await axios.post('http://localhost:5000/api/notas/crear-hoja', payload);
