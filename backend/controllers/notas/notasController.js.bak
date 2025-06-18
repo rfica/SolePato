@@ -391,11 +391,9 @@ exports.crearHojaNotas = async (req, res) => {
       asignaturaId,
       courseSectionId,
       schoolId,
+      fechaEvaluacion,
       estudiantes
     } = req.body;
-    
-    // Cambiado de const a let para permitir reasignación
-    let fechaEvaluacion = req.body.fechaEvaluacion;
 
     const horaInicio = '09:00:00';
     const horaFin = '10:00:00';
