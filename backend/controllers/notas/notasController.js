@@ -1816,16 +1816,21 @@ exports.limpiarDatosPrevios = async (req, res) => {
 // POST /api/notas/notas-acumuladas/cargar-existentes
 exports.cargarNotasAcumulativasExistentes = async (req, res) => {
   try {
-    const { assessmentId, cursoId, asignaturaId } = req.body;
+    const { assessmentId, cursoId, asignaturaId} = req.body;
 
-    if (!assessmentSubtestId || !cursoId || !asignaturaId) {
-      return res.status(400).json({ error: 'Parámetros requeridos faltantes' });
+    console.log(`[CARGAR_EXISTENTES] Recibido: assessmentId=${assessmentId}, cursoId=${cursoId}, asignaturaId=${asignaturaId}`);
+
+    if (!assessmentId || !cursoId || !asignaturaId) {
+      console.error('[CARGAR_EXISTENTES] Parámetros requeridos faltantes');
+      return res.status(400).json({ error: 'Parámetros requeridos faltantes (assessmentId, cursoId, asignaturaId)' });
     }
 
     const pool = await poolPromise;
 
-    console.log(`[CARGAR_EXISTENTES] Buscando notas para assessmentSubtestId: ${assessmentSubtestId}`);
+    console.log(`[CARGAR_EXISTENTES] Buscando notas para assessmentId: ${assessmentId}`);
 
+    // Consulta para obtener resultados de subnotas y el promedio para un Assessment principal
+    // Filtra por AssessmentId, curso (OrganizationId en Registration) y asignatura (CourseSectionOrganizationId en Registration)
     const query = `
       SELECT 
         ar.AssessmentRegistrationId,
@@ -1836,14 +1841,14 @@ exports.cargarNotasAcumulativasExistentes = async (req, res) => {
         result.IsAverage,
         ROW_NUMBER() OVER (PARTITION BY ar.AssessmentRegistrationId, result.IsAverage ORDER BY result.DateCreated) as RowNum
       FROM AssessmentResult result
+      -- Unimos a AssessmentRegistration para filtrar por estudiante, curso y asignatura
       INNER JOIN AssessmentRegistration ar ON result.AssessmentRegistrationId = ar.AssessmentRegistrationId
       INNER JOIN Person p ON ar.PersonId = p.PersonId
-      WHERE result.AssessmentSubtestId = @assessmentSubtestId
+      WHERE result.AssessmentId = @assessmentId  -- <-- Filtramos por el AssessmentId principal
         AND ar.OrganizationId = @cursoId
         AND ar.CourseSectionOrganizationId = @asignaturaId
       ORDER BY p.LastName, p.FirstName, result.IsAverage, result.DateCreated
     `;
-
     const result = await pool.request()
       .input('assessmentSubtestId', sql.Int, assessmentSubtestId)
       .input('cursoId', sql.Int, cursoId)
@@ -1851,7 +1856,7 @@ exports.cargarNotasAcumulativasExistentes = async (req, res) => {
       .query(query);
 
     // Organizar los datos por estudiante
-    const estudiantesMap = {};
+    const estudiantesMap = {}; // Usamos un mapa para agrupar por registrationId
 
     for (const row of result.recordset) {
       const key = row.AssessmentRegistrationId;
@@ -1863,14 +1868,16 @@ exports.cargarNotasAcumulativasExistentes = async (req, res) => {
           LastName: row.LastName,
           SecondLastName: row.SecondLastName,
           subnotas: [],
-          promedio: null
+          promedio: null,
+          // Añadir otros campos si son necesarios en el frontend
+          AssessmentRegistrationId: row.AssessmentRegistrationId // Aseguramos que el ID esté en el objeto final
         };
       }
 
-      if (row.IsAverage === 1) {
-        estudiantesMap[key].promedio = row.ScoreValue;
+      if (row.IsAverage === 1 && row.ScoreValue !== null) {
+        estudiantesMap[key].promedio = parseFloat(row.ScoreValue); // Convertir a número
       } else {
-        estudiantesMap[key].subnotas.push(row.ScoreValue);
+        estudiantesMap[key].subnotas.push(row.ScoreValue !== null ? parseFloat(row.ScoreValue) : null); // Convertir a número o mantener null
       }
     }
 
