@@ -931,19 +931,22 @@ const confirmarCambioTipo = async (nuevoValor) => {
   // Mensaje para cambio a acumulativa
   if (parseInt(nuevoValor) === 2) {
     const resultado = await Swal.fire({
-      title: \'Atención\',\n        text: \'Al continuar, esta N se transformará en \"Acumulativa\", por lo tanto, se perderán todas las notas que hayan sido ingresadas anteriormente. ¿Desea continuar?\',\n        icon: \'warning\',
+      title: 'Atención',
+      text: 'Al continuar, esta N se transformará en "Acumulativa", por lo tanto, se perderán todas las notas que hayan sido ingresadas anteriormente. ¿Desea continuar?',
+      icon: 'warning',
       showCancelButton: true,
-      confirmButtonText: \'Continuar\',\n        cancelButtonText: \'Cancelar\'
+      confirmButtonText: 'Continuar',
+      cancelButtonText: 'Cancelar'
     });
 
     if (resultado.isConfirmed) {
       try {
         // PASO 1: Cambiar a tipo acumulativa primero
         setTipoColumna(2);
-
+          
         // PASO 2: Limpiar datos previos antes de crear nuevos registros
-        console.log(\'[DEBUG] Limpiando datos previos antes de cambiar a Acumulativa...\');
-
+        console.log('[DEBUG] Limpiando datos previos antes de cambiar a Acumulativa...');
+          
         try {
           await axios.delete(`http://localhost:5000/api/notas/limpiar-datos-previos`, {
             data: {
@@ -953,17 +956,16 @@ const confirmarCambioTipo = async (nuevoValor) => {
               columna
             }
           });
-          console.log(\'[DEBUG] Datos previos limpiados correctamente\');
+          console.log('[DEBUG] Datos previos limpiados correctamente');
         } catch (cleanError) {
-          console.warn(\'[WARN] Error al limpiar datos previos:\', cleanError);\n
+          console.warn('[WARN] Error al limpiar datos previos:', cleanError);
           // Continuar aunque la limpieza falle
         }
-
-
-
-
+		  
+		  
+		  
         // PASO 3: Crear las subnotas en AssessmentSubtest
-        console.log(\'[DEBUG] Creando subnotas en AssessmentSubtest...\');
+        console.log('[DEBUG] Creando subnotas en AssessmentSubtest...');
         try {
           // Crear 2 subnotas por defecto
           const cantidadSubnotas = 2;
@@ -972,49 +974,49 @@ const confirmarCambioTipo = async (nuevoValor) => {
             columna,
             cantidadSubnotas
           });
-
-          console.log(\'[DEBUG] Subnotas creadas:\', resSubnotas.data);
+            
+          console.log('[DEBUG] Subnotas creadas:', resSubnotas.data);
         } catch (subnotasError) {
-          console.error(\'[ERROR] Error al crear subnotas:\', subnotasError);\n
+          console.error('[ERROR] Error al crear subnotas:', subnotasError);
           // Continuar aunque haya error
         }
 
 
         // PASO 4: Obtener estudiantes del curso directamente
-        console.log(\'[DEBUG] Obteniendo estudiantes del curso...\');
+        console.log('[DEBUG] Obteniendo estudiantes del curso...');
         const resEstudiantes = await axios.get(`http://localhost:5000/api/notas/estudiantes/${cursoId}`);
         const estudiantesCurso = resEstudiantes.data;
-
+          
         if (!estudiantesCurso || estudiantesCurso.length === 0) {
-          Swal.fire(\'Error\', \'No se encontraron estudiantes en el curso.\', \'error\');
+          Swal.fire('Error', 'No se encontraron estudiantes en el curso.', 'error');
           return;
         }
 
         console.log(`[DEBUG] Estudiantes encontrados: ${estudiantesCurso.length}`);
-
+          
         // Inicializar subnotas con los estudiantes del curso antes de continuar
         const subnotasIniciales = estudiantesCurso.map(alumno => ({
-          nombre: `${alumno.FirstName || \'\'} ${alumno.LastName || \'\'} ${alumno.SecondLastName || \'\'}`.trim(),\n
-          notas: [null, null],\n
-          pesos: [50, 50],\n
+          nombre: `${alumno.FirstName || ''} ${alumno.LastName || ''} ${alumno.SecondLastName || ''}`.trim(),
+          notas: [null, null],
+          pesos: [50, 50],
           promedio: 0,
           assessmentRegistrationId: null,
           organizationPersonRoleId: alumno.OrganizationPersonRoleId,
           personId: alumno.PersonId
         }));
-
+          
         // Actualizar el estado de subnotas inmediatamente para mostrar los estudiantes
         setSubnotas(subnotasIniciales);
-        console.log(\'[DEBUG] Subnotas inicializadas con estudiantes del curso:\', subnotasIniciales);
+        console.log('[DEBUG] Subnotas inicializadas con estudiantes del curso:', subnotasIniciales);
 
         // No crear registros aquí - lo haremos al guardar la configuración
-        console.log(\'[DEBUG] Cambio a tipo acumulativa completado. Los registros se crearán al guardar.\');
-
+        console.log('[DEBUG] Cambio a tipo acumulativa completado. Los registros se crearán al guardar.');
+          
         return; // Salir para que el usuario pueda completar la configuración
 
       } catch (err) {
-        console.error(\'[ERROR] al preparar cambio a Acumulativa:\', err);
-        Swal.fire(\'Error\', \'No se pudo completar el cambio a Acumulativa. Intente nuevamente.\', \'error\');
+        console.error('[ERROR] al preparar cambio a Acumulativa:', err);
+        Swal.fire('Error', 'No se pudo completar el cambio a Acumulativa. Intente nuevamente.', 'error');
         return;
       }
     }
@@ -1022,17 +1024,19 @@ const confirmarCambioTipo = async (nuevoValor) => {
     // Cambio de acumulativa a directa o vinculada
     if (parseInt(tipoColumna) === 2) {
       const resultado = await Swal.fire({
-        title: \'Atención\',\n          text: `Al continuar, esta N se transformará en \"${nuevoValor === \'1\' ? \'Directa\' : \'Vinculada\'}\", por lo tanto, se perderán todas las notas acumulativas que hayan sido ingresadas anteriormente. ¿Desea continuar?`,
-        icon: \'warning\',
+        title: 'Atención',
+        text: `Al continuar, esta N se transformará en "${nuevoValor === '1' ? 'Directa' : 'Vinculada'}", por lo tanto, se perderán todas las notas acumulativas que hayan sido ingresadas anteriormente. ¿Desea continuar?`,
+        icon: 'warning',
         showCancelButton: true,
-        confirmButtonText: \'Continuar\',\n          cancelButtonText: \'Cancelar\'
+        confirmButtonText: 'Continuar',
+        cancelButtonText: 'Cancelar'
       });
 
       if (resultado.isConfirmed) {
         try {
           // Limpiar datos previos antes de cambiar el tipo
-          console.log(\'[DEBUG] Limpiando datos previos antes de cambiar de Acumulativa...\');
-
+          console.log('[DEBUG] Limpiando datos previos antes de cambiar de Acumulativa...');
+            
           try {
             await axios.delete(`http://localhost:5000/api/notas/limpiar-datos-previos`, {
               data: {
@@ -1042,18 +1046,18 @@ const confirmarCambioTipo = async (nuevoValor) => {
                 columna
               }
             });
-            console.log(\'[DEBUG] Datos previos limpiados correctamente\');
+            console.log('[DEBUG] Datos previos limpiados correctamente');
           } catch (cleanError) {
-            console.warn(\'[WARN] Error al limpiar datos previos:\', cleanError);\n
+            console.warn('[WARN] Error al limpiar datos previos:', cleanError);
             // Continuar aunque la limpieza falle
           }
-
+            
           // Cambiar el tipo de columna
           setTipoColumna(parseInt(nuevoValor));
-
+            
         } catch (err) {
-          console.error(\'[ERROR] al cambiar de Acumulativa:\', err);
-          Swal.fire(\'Error\', `No se pudo completar el cambio a ${nuevoValor === \'1\' ? \'Directa\' : \'Vinculada\'}. Intente nuevamente.`, \'error\');
+          console.error('[ERROR] al cambiar de Acumulativa:', err);
+          Swal.fire('Error', `No se pudo completar el cambio a ${nuevoValor === '1' ? 'Directa' : 'Vinculada'}. Intente nuevamente.`, 'error');
           return;
         }
       }
@@ -1063,6 +1067,7 @@ const confirmarCambioTipo = async (nuevoValor) => {
     }
   }
 };
+
 
 
  console.log("[DEBUG] tiposEvaluacion recibidos en modal:", tiposEvaluacion);
