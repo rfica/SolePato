@@ -1206,116 +1206,14 @@ exports.logCambioColumna = async (req, res) => {
 
 //****************BACK PARA ACUMULATIVA
 
-
-/*
-// POST /api/notas/notas-acumuladas
-exports.guardarNotasAcumuladas = async (req, res) => {
-  try {
-    const { assessmentSubtestId, fecha, subnotas } = req.body;
-
-    if (!assessmentSubtestId || !fecha || !Array.isArray(subnotas)) {
-      return res.status(400).json({ error: 'Faltan datos requeridos' });
-    }
-
-    const pool = await poolPromise;
-    const transaction = new sql.Transaction(pool);
-    await transaction.begin();
-
-    console.log(`[GUARDAR_ACUMULATIVA] Iniciando proceso para assessmentSubtestId: ${assessmentSubtestId}`);
-    console.log(`[GUARDAR_ACUMULATIVA] Fecha de evaluación: ${fecha}`);
-    console.log(`[GUARDAR_ACUMULATIVA] Total subnotas recibidas: ${subnotas.length}`);
-
-    for (const alumno of subnotas) {
-      const registrationId = alumno.assessmentRegistrationId;
-
-      // Validar ID
-      if (!registrationId || isNaN(registrationId)) {
-        console.warn(`[GUARDAR_ACUMULATIVA] Registro omitido por ID inválido:`, registrationId);
-        continue;
-      }
-
-      // Crear nuevo request para cada operación para evitar conflictos de parámetros
-      let request = new sql.Request(transaction);
-
-      // Eliminar notas anteriores del subtest
-      await request
-        .input('AssessmentRegistrationId', sql.Int, registrationId)
-        .input('AssessmentSubtestId', sql.Int, assessmentSubtestId)
-        .query(`
-          DELETE FROM AssessmentResult
-          WHERE AssessmentRegistrationId = @AssessmentRegistrationId
-            AND AssessmentSubtestId = @AssessmentSubtestId
-        `);
-
-      // Insertar subnotas (IsAverage = 0)
-      if (Array.isArray(alumno.notas)) {
-        for (let i = 0; i < alumno.notas.length; i++) {
-          const nota = alumno.notas[i];
-
-          if (nota !== null && nota !== undefined && !isNaN(nota)) {
-            const notaRedondeada = Math.round(nota * 10) / 10;
-
-            // Crear nuevo request para cada subnota
-            request = new sql.Request(transaction);
-            await request
-              .input('RegId', sql.Int, registrationId)
-              .input('SubtestId', sql.Int, assessmentSubtestId)
-              .input('Nota', sql.Decimal(4, 1), notaRedondeada)
-              .input('Fecha', sql.DateTime, fecha)
-              .query(`
-                INSERT INTO AssessmentResult
-                (AssessmentRegistrationId, AssessmentSubtestId, ScoreValue, IsAverage, DateCreated)
-                VALUES (@RegId, @SubtestId, @Nota, 0, @Fecha)
-              `);
-
-            console.log(`[GUARDAR_ACUMULATIVA] Subnota insertada para ${registrationId} - nota[${i}]: ${notaRedondeada}`);
-          } else {
-            console.warn(`[GUARDAR_ACUMULATIVA] Nota inválida omitida en alumno ${registrationId}, índice ${i}:`, nota);
-          }
-        }
-      }
-
-      // Insertar promedio (IsAverage = 1)
-      if (alumno.promedio !== null && alumno.promedio !== undefined && !isNaN(alumno.promedio)) {
-        const promedioRedondeado = Math.round(alumno.promedio * 10) / 10;
-
-        // Crear nuevo request para el promedio
-        request = new sql.Request(transaction);
-        await request
-          .input('RegId', sql.Int, registrationId)
-          .input('SubtestId', sql.Int, assessmentSubtestId)
-          .input('Promedio', sql.Decimal(4, 1), promedioRedondeado)
-          .input('Fecha', sql.DateTime, fecha)
-          .query(`
-            INSERT INTO AssessmentResult
-            (AssessmentRegistrationId, AssessmentSubtestId, ScoreValue, IsAverage, DateCreated)
-            VALUES (@RegId, @SubtestId, @Promedio, 1, @Fecha)
-          `);
-
-        console.log(`[GUARDAR_ACUMULATIVA] Promedio insertado para ${registrationId}: ${promedioRedondeado}`);
-      } else {
-        console.warn(`[GUARDAR_ACUMULATIVA] Promedio inválido omitido para alumno ${registrationId}`);
-      }
-    }
-
-    await transaction.commit();
-    console.log('[GUARDAR_ACUMULATIVA] Proceso finalizado exitosamente');
-    res.status(200).json({ success: true, message: 'Notas acumulativas guardadas correctamente' });
-  } catch (error) {
-    console.error('[GUARDAR_ACUMULATIVA][ERROR]', error);
-    res.status(500).json({ success: false, message: 'Error al guardar notas acumulativas', error });
-  }
-};
-
-*/
 // POST /api/notas/notas-acumuladas/guardar
 exports.guardarNotasAcumuladas = async (req, res) => {
   const pool = await poolPromise;
   const transaction = new sql.Transaction(pool);
   let notasInsertadas = 0;
   let promediosInsertados = 0;
-  let registrosOmitidos = 0; // Mantener para otros posibles casos
-  let registrosCreados = 0; // Para contar los nuevos registros de inscripción
+  let registrosOmitidos = 0;
+  let registrosCreados = 0;
 
   try {
     const { assessmentId, subnotas, fecha, cursoId, asignaturaId } = req.body;
@@ -1327,7 +1225,7 @@ exports.guardarNotasAcumuladas = async (req, res) => {
       asignaturaId,
       subnotas: Array.isArray(subnotas) ? subnotas.length : 'no es array'
     });
-    console.log('[GUARDAR_ACUMULATIVA] Payload subnotas detallado:', JSON.stringify(subnotas));
+    console.log('[GUARDAR_ACUMULATIVA] Payload subnotas detallado (primeros 5 alumnos):', JSON.stringify(subnotas.slice(0, 5))); // Log solo los primeros para evitar logs muy largos
 
 
     if (!assessmentId || !Array.isArray(subnotas) || !cursoId || !asignaturaId) {
@@ -1407,7 +1305,7 @@ exports.guardarNotasAcumuladas = async (req, res) => {
       console.log(`[GUARDAR_ACUMULATIVA] Usando AssessmentAdministrationId existente: ${assessmentAdministrationId}`);
     }
 
-    // Obtener todos los AssessmentSubtestId relacionados con este assessmentId
+    // --- MODIFICACIÓN CLAVE 1: Obtener los AssessmentSubtestId y Identifiers correctos y ORDENADOS ---
     const subtestResult = await new sql.Request(transaction)
       .input('assessmentId', sql.Int, assessmentId)
       .query(`
@@ -1415,27 +1313,30 @@ exports.guardarNotasAcumuladas = async (req, res) => {
         FROM AssessmentSubtest ast
         INNER JOIN AssessmentForm af ON ast.AssessmentFormId = af.AssessmentFormId
         WHERE af.AssessmentId = @assessmentId
-        ORDER BY ast.AssessmentSubtestId
+        ORDER BY ast.Identifier -- Ordenar por Identifier para asegurar consistencia con el frontend
       `);
 
-    let subtestIds = subtestResult.recordset.map(r => r.AssessmentSubtestId);
-    console.log(`[GUARDAR_ACUMULATIVA] AssessmentSubtestIds encontrados para el guardado:`, subtestIds);
+    const subtestMap = {}; // Mapa para buscar AssessmentSubtestId por Identifier
+    const subtestIdentifiersOrdenados = []; // Array ordenado de Identifiers
 
-
-    if (subtestIds.length === 0) {
-        console.error(`[GUARDAR_ACUMULATIVA] No se encontraron AssessmentSubtestIds para assessmentId: ${assessmentId}. No se pueden guardar subnotas.`);
-         // Si no hay subtests, no podemos guardar subnotas, pero la lógica de promedio aún podría ser relevante si se maneja de otra forma.
-         // Sin embargo, para una columna ACUMULATIVA, la expectativa es que haya subtests.
-         await transaction.rollback();
-         return res.status(404).json({ error: 'No se encontraron AssessmentSubtestIds asociados a esta columna. Asegúrese de que se han creado las subnotas.' });
+    if (subtestResult.recordset.length > 0) {
+        subtestResult.recordset.forEach(r => {
+            subtestMap[r.Identifier] = r.AssessmentSubtestId;
+            subtestIdentifiersOrdenados.push(r.Identifier);
+        });
+        console.log(`[GUARDAR_ACUMULATIVA] AssessmentSubtests encontrados para el guardado:`, subtestResult.recordset);
+    } else {
+         console.warn(`[GUARDAR_ACUMULATIVA] No se encontraron AssessmentSubtests para assessmentId: ${assessmentId}. Esto es inesperado para una nota acumulativa.`);
+         // Dependiendo de la lógica de negocio, aquí podríamos lanzar un error o permitir guardar solo el promedio si aplica.
+         // Por ahora, continuamos pero no podremos guardar subnotas individuales si no hay subtests.
     }
 
 
     // Procesar cada alumno
     for (const alumno of subnotas) {
       let registrationId = alumno.assessmentRegistrationId;
-      const personId = alumno.personId; // Asumiendo que personId viene en el payload del alumno
-      const organizationPersonRoleId = alumno.organizationPersonRoleId; // Asumiendo que organizationPersonRoleId viene
+      const personId = alumno.personId;
+      const organizationPersonRoleId = alumno.organizationPersonRoleId;
 
        console.log(`[GUARDAR_ACUMULATIVA] Procesando alumno:`, {
          personId,
@@ -1531,79 +1432,132 @@ exports.guardarNotasAcumuladas = async (req, res) => {
       }
 
       // 3. Eliminar TODAS las notas previas relacionadas con este registro y estos subtests
-      // Esto evitará duplicados al re-guardar
-      // NOTA: Solo eliminamos resultados de subtests (IsAverage = 0). La nota promedio (IsAverage = 1)
-      // se sobrescribe si ya existe o se inserta si no.
-      await new sql.Request(transaction)
-        .input('registrationId', sql.Int, registrationId)
-        .query(`
-          DELETE FROM AssessmentResult
-          WHERE AssessmentRegistrationId = @registrationId
-          AND AssessmentSubtestId IN (${subtestIds.join(',')}) -- Eliminar solo resultados de subtests
-          AND IsAverage = 0
-        `);
+      // Esto evitará duplicados al re-guardar. Eliminamos resultados de subtests (IsAverage = 0).
+      // La nota promedio (IsAverage = 1) se maneja por separado.
+      if (subtestIdentifiersOrdenados.length > 0) {
+         await new sql.Request(transaction)
+           .input('registrationId', sql.Int, registrationId)
+           .query(`
+             DELETE FROM AssessmentResult
+             WHERE AssessmentRegistrationId = @registrationId
+             AND AssessmentSubtestId IN (${Object.values(subtestMap).join(',')}) -- Eliminar solo resultados de subtests usando los IDs encontrados
+             AND IsAverage = 0
+           `);
+           console.log(`[GUARDAR_ACUMULATIVA] Notas acumulativas previas (subnotas) eliminadas para registrationId: ${registrationId}`);
+      } else {
+           console.log(`[GUARDAR_ACUMULATIVA] No hay subtestIds para eliminar notas previas para registrationId: ${registrationId}`);
+      }
 
-      console.log(`[GUARDAR_ACUMULATIVA] Notas acumulativas previas (subnotas) eliminadas para registrationId: ${registrationId}`);
 
-      // 4. Insertar subnotas
+      // 4. Insertar subnotas individuales
       let notasValidas = 0;
       let sumaNotas = 0;
 
-      if (Array.isArray(alumno.notas)) {
-        console.log(`[DEBUG] Intentando insertar ${alumno.notas.length} subnotas para ${registrationId}. SubtestIds disponibles: ${subtestIds.length}`);
+      if (Array.isArray(alumno.notas) && alumno.notas.length > 0 && subtestIdentifiersOrdenados.length > 0) {
+        console.log(`[DEBUG] Intentando insertar ${alumno.notas.length} subnotas para ${registrationId}. Subtest Identifiers encontrados: ${subtestIdentifiersOrdenados.join(', ')}`);
 
-        for (let i = 0; i < Math.min(alumno.notas.length, subtestIds.length); i++) {
-          const nota = alumno.notas[i];
-          const subtestId = subtestIds[i];
+        // --- MODIFICACIÓN CLAVE 2: Mapear notas del alumno a los AssessmentSubtestId correctos ---
+        // Usamos un bucle for normal para poder usar await dentro si fuera necesario (aunque en este bloque no lo es)
+        // y para asegurar el orden de procesamiento según los Identifiers ordenados.
+        for (let i = 0; i < Math.min(alumno.notas.length, subtestIdentifiersOrdenados.length); i++) {
+            const score = alumno.notas[i];
+            const identifier = subtestIdentifiersOrdenados[i]; // Obtener el Identifier ordenado
+            const subtestId = subtestMap[identifier]; // Obtener el AssessmentSubtestId usando el mapa
 
-          // Asegurar que la nota es numérica y no vacía/nula
-          if (nota !== null && nota !== undefined && nota !== '' && !isNaN(parseFloat(nota))) {
-            const notaRedondeada = Math.round(parseFloat(nota) * 10) / 10;
+            // Asegurar que la nota es numérica y no vacía/nula
+            if (score !== null && score !== undefined && score !== '' && !isNaN(parseFloat(score))) {
+                const notaRedondeada = Math.round(parseFloat(score) * 10) / 10;
 
-            console.log(`[DEBUG] Insertando subnota: regId=${registrationId}, subtestId=${subtestId}, nota=${notaRedondeada}`);
+                if (subtestId !== undefined && subtestId !== null) {
+                     console.log(`[DEBUG] Insertando subnota: regId=${registrationId}, subtestId=${subtestId} (${identifier}), nota=${notaRedondeada}`);
 
-            try {
-              // Insertar nuevo registro de subnota
-              await new sql.Request(transaction)
-                .input('RegId', sql.Int, registrationId)
-                .input('SubtestId', sql.Int, subtestId)
-                .input('Nota', sql.Decimal(4, 1), notaRedondeada)
-                 .input('Fecha', sql.DateTime, fecha || new Date()) // Usar fecha del payload o actual
-                .query(`
-                  INSERT INTO AssessmentResult
-                  (AssessmentRegistrationId, AssessmentSubtestId, ScoreValue, IsAverage, DateCreated)
-                  VALUES (@RegId, @SubtestId, @Nota, 0, @Fecha)
-                `);
+                     try {
+                         // Insertar nuevo registro de subnota
+                         await new sql.Request(transaction)
+                             .input('RegId', sql.Int, registrationId)
+                             .input('SubtestId', sql.Int, subtestId)
+                             .input('Nota', sql.Decimal(4, 1), notaRedondeada)
+                             .input('Fecha', sql.DateTime, fecha || new Date()) // Usar fecha del payload o actual
+                             .query(`
+                                 INSERT INTO AssessmentResult
+                                 (AssessmentRegistrationId, AssessmentSubtestId, ScoreValue, IsAverage, DateCreated)
+                                 VALUES (@RegId, @SubtestId, @Nota, 0, @Fecha)
+                             `);
 
-              console.log(`[GUARDAR_ACUMULATIVA] Subnota insertada exitosamente para ${registrationId}, subtestId ${subtestId}`);
-              notasInsertadas++;
-              notasValidas++;
-              sumaNotas += notaRedondeada;
-            } catch (insertError) {
-              console.error(`[ERROR] Error al insertar subnota en BD para registrationId ${registrationId}, subtestId ${subtestId}:`, insertError);
-              // Dependiendo del error, podríamos querer hacer un rollback o continuar.
-              // Por ahora, solo logueamos el error y continuamos con el siguiente.
+                         console.log(`[GUARDAR_ACUMULATIVA] Subnota insertada exitosamente para ${registrationId}, subtestId ${subtestId} (${identifier})`);
+                         notasInsertadas++;
+                         // Para el cálculo del promedio local, solo consideramos notas válidas.
+                         notasValidas++;
+                         sumaNotas += notaRedondeada; // Suma simple para cálculo de promedio si no hay pesos
+                         
+                     } catch (insertError) {
+                         console.error(`[ERROR] Error al insertar subnota en BD para registrationId ${registrationId}, subtestId ${subtestId} (${identifier}):`, insertError);
+                         // Logueamos el error y continuamos.
+                     }
+                } else {
+                     console.warn(`[WARN] No se encontró AssessmentSubtestId para identifier ${identifier}. Nota no guardada para registrationId ${registrationId}.`);
+                }
+            } else {
+                console.warn(`[GUARDAR_ACUMULATIVA] Nota inválida u omitida para registrationId ${registrationId}, subcolumna índice ${idx} (${identifier}):`, score);
             }
-          } else {
-            console.warn(`[GUARDAR_ACUMULATIVA] Nota inválida omitida en alumno ${registrationId}, índice ${i}:`, nota);
-          }
         }
       } else {
-           console.warn(`[GUARDAR_ACUMULATIVA] alumno.notas no es un array o está vacío para registrationId ${registrationId}`);
+           console.warn(`[GUARDAR_ACUMULATIVA] No hay notas en el payload del alumno o no hay subtests definidos para registrationId ${registrationId}.`);
       }
 
 
       // 5. Calcular e insertar/actualizar promedio (Nota principal acumulativa)
+      // NOTA: El promedio se guarda asociado al AssessmentRegistrationId y el AssessmentId principal, con AssessmentSubtestId = NULL.
+      // Esto diferencia el promedio de las subnotas individuales.
+
+      // Calcular el promedio basado en las notas válidas que acabamos de procesar/intentar guardar
       let promedioCalculado = 0;
       if (notasValidas > 0) {
-        promedioCalculado = Math.round((sumaNotas / notasValidas) * 10) / 10;
+          // Aquí podrías usar la suma ponderada si los pesos vinieran en el payload de subnotas individuales
+          // Por ahora, si `alumno.pesos` viene en el payload del alumno (frontend), úsalo.
+          // Si no, o si la suma de pesos no es 100, calcula un promedio simple de las notas válidas.
+          
+          // --- MODIFICACIÓN CLAVE 3: Usar los pesos para calcular el promedio ponderado ---
+          let sumaPonderada = 0;
+          let sumaPesos = 0;
+          
+          if (Array.isArray(alumno.notas) && Array.isArray(alumno.pesos) && alumno.notas.length === alumno.pesos.length) {
+              console.log(`[DEBUG] Calculando promedio ponderado para registrationId ${registrationId}`);
+              // Asegurarse de iterar solo hasta el número de notas/pesos o subtests disponibles
+              for (let i = 0; i < Math.min(alumno.notas.length, alumno.pesos.length, subtestIdentifiersOrdenados.length); i++) {
+                  const score = alumno.notas[i];
+                  const peso = parseFloat(alumno.pesos[i]);
+                  const notaNum = (score !== null && score !== undefined && score !== '' && !isNaN(parseFloat(score))) ? parseFloat(score) : null;
+                  
+                  if (notaNum !== null && !isNaN(peso)) {
+                       sumaPonderada += (notaNum * peso);
+                       sumaPesos += peso;
+                  }
+              }
+
+              if (sumaPesos > 0) { // Si la suma de pesos de notas válidas con peso > 0 es > 0
+                  promedioCalculado = Math.round((sumaPonderada / sumaPesos) * 10) / 10;
+              } else {
+                  promedioCalculado = 0; // No hay notas válidas con peso > 0
+              }
+              console.log(`[DEBUG] Suma ponderada: ${sumaPonderada}, Suma pesos: ${sumaPesos}, Promedio calculado: ${promedioCalculado}`);
+
+          } else {
+              // Si no hay pesos válidos o los arrays no coinciden, calcular promedio simple de notas válidas
+              console.warn(`[WARN] No se pudieron usar pesos válidos para calcular promedio ponderado para registrationId ${registrationId}. Calculando promedio simple.`);
+              if (notasValidas > 0) {
+                   promedioCalculado = Math.round((sumaNotas / notasValidas) * 10) / 10;
+              } else {
+                   promedioCalculado = 0;
+              }
+          }
       } else {
           // Si no hay notas válidas, el promedio es 0
            console.log(`[GUARDAR_ACUMULATIVA] No hay notas válidas para calcular promedio para registrationId ${registrationId}. Promedio será 0.`);
       }
 
       // Usar el promedio recibido del frontend si es válido, de lo contrario, usar el calculado
-      const promedioFinal = (alumno.promedio !== null && alumno.promedio !== undefined && !isNaN(parseFloat(alumno.promedio)))
+      const promedioFinal = (alumno.promedio !== null && alumno.promedio !== undefined && alumno.promedio !== '' && !isNaN(parseFloat(alumno.promedio)))
                               ? Math.round(parseFloat(alumno.promedio) * 10) / 10
                               : promedioCalculado;
 
@@ -1611,34 +1565,34 @@ exports.guardarNotasAcumuladas = async (req, res) => {
 
 
       // Eliminar cualquier registro de promedio existente para este registro y este AssessmentId principal
-       // Antes insertábamos el promedio con SubtestId; ahora lo guardaremos con SubtestId = NULL.
-       // Eliminamos cualquier promedio anterior asociado a este registrationId Y este assessmentId principal,
-       // independientemente de su AssessmentSubtestId anterior (por si acaso hubo un guardado previo con SubtestId).
+       // Buscamos el promedio asociado a este AssessmentRegistrationId Y el AssessmentId principal, con IsAverage = 1.
+       // Esto requiere unir a AssessmentRegistration y Assessment_AssessmentAdministration.
        await new sql.Request(transaction)
          .input('registrationId', sql.Int, registrationId)
          .input('assessmentId', sql.Int, assessmentId)
          .query(`
-           DELETE FROM AssessmentResult
-           WHERE AssessmentRegistrationId = @registrationId
-             AND AssessmentId = @assessmentId
-             AND IsAverage = 1 -- Asegurarse de que eliminamos solo el promedio
+           DELETE ar FROM AssessmentResult ar
+           INNER JOIN AssessmentRegistration reg ON ar.AssessmentRegistrationId = reg.AssessmentRegistrationId
+           INNER JOIN AssessmentAdministration aa ON reg.AssessmentAdministrationId = aa.AssessmentAdministrationId
+           INNER JOIN Assessment_AssessmentAdministration aaa ON aa.AssessmentAdministrationId = aaa.AssessmentAdministrationId
+           WHERE ar.AssessmentRegistrationId = @registrationId
+             AND aaa.AssessmentId = @assessmentId -- Aseguramos que eliminamos el promedio de ESTA nota principal
+             AND ar.IsAverage = 1
          `);
 
-       console.log(`[GUARDAR_ACUMULATIVA] Promedio previo eliminado para registrationId: ${registrationId}`);
+       console.log(`[GUARDAR_ACUMULATIVA] Promedio previo eliminado (si existía) para registrationId: ${registrationId}`);
 
 
-      // *** MODIFICACIÓN FINAL AQUÍ: Insertar el promedio asociado al AssessmentId principal ***
+      // 5.1. Insertar el nuevo promedio
       // Lo asociamos al AssessmentRegistrationId y establecemos AssessmentSubtestId a NULL.
-      // Usamos el AssessmentId en la consulta aunque AssessmentResult no tenga AssessmentId directamente.
-      // La relación es a través de AssessmentRegistration -> AssessmentAdministration -> Assessment.
-      // Para la inserción directa en AssessmentResult, necesitamos el AssessmentRegistrationId.
-      // La consulta de carga posterior necesitará unirse a AssessmentRegistration/Administration para filtrar por AssessmentId principal.
-
+      // Usamos IsAverage = 1 para marcarlo como promedio.
+      // **AJUSTE CRÍTICO:** Eliminada la inserción de AssessmentId en AssessmentResult ya que no existe esa columna.
       try {
           await new sql.Request(transaction)
             .input('regId', sql.Int, registrationId)
             .input('promedio', sql.Decimal(4, 1), promedioFinal)
             .input('fecha', sql.DateTime, fecha || new Date()) // Usar fecha del payload o actual
+            // .input('assessmentId', sql.Int, assessmentId) // Eliminada la inserción en AssessmentResult
             .query(`
               INSERT INTO AssessmentResult
               (AssessmentRegistrationId, AssessmentSubtestId, ScoreValue, IsAverage, DateCreated)
@@ -1653,7 +1607,6 @@ exports.guardarNotasAcumuladas = async (req, res) => {
           // Si falla la inserción del promedio, logueamos el error.
       }
 
-      // >>> ELIMINADA LA SEGUNDA INSERCIÓN DEL PROMEDIO DUPLICADA <<<
 
     } // Fin del bucle for (const alumno of subnotas)
 
@@ -2037,7 +1990,6 @@ exports.limpiarDatosPrevios = async (req, res) => {
   }
 };
 
-
 // POST /api/notas/notas-acumuladas/cargar-existentes
 exports.cargarNotasAcumulativasExistentes = async (req, res) => {
   try {
@@ -2054,68 +2006,102 @@ exports.cargarNotasAcumulativasExistentes = async (req, res) => {
 
     console.log(`[CARGAR_EXISTENTES] Buscando notas para assessmentId: ${assessmentId}`);
 
-    // Consulta para obtener resultados de subnotas y el promedio para un Assessment principal
-    // Filtra por AssessmentId, curso (OrganizationId en Registration) y asignatura (CourseSectionOrganizationId en Registration)
+    // --- AJUSTE CRÍTICO: Modificar consulta para unir a AssessmentRegistration y AssessmentAdministration ---
+    // para filtrar AssessmentResult por el AssessmentId principal.
+    // También, asegurar que se obtengan los AssessmentSubtestId y ScoreValue correctamente.
     const query = `
-      SELECT 
-        ar.AssessmentRegistrationId,
-        p.FirstName,
-        p.LastName,
-        p.SecondLastName,
-        result.ScoreValue,
-        result.IsAverage,
-        ROW_NUMBER() OVER (PARTITION BY ar.AssessmentRegistrationId, result.IsAverage ORDER BY result.DateCreated) as RowNum
-      FROM AssessmentResult result
-      -- Unimos a AssessmentRegistration para filtrar por estudiante, curso y asignatura
-      INNER JOIN AssessmentRegistration ar ON result.AssessmentRegistrationId = ar.AssessmentRegistrationId
-      INNER JOIN Person p ON ar.PersonId = p.PersonId
-      WHERE result.AssessmentId = @assessmentId  -- <-- Filtramos por el AssessmentId principal
-        AND ar.OrganizationId = @cursoId
-        AND ar.CourseSectionOrganizationId = @asignaturaId
-      ORDER BY p.LastName, p.FirstName, result.IsAverage, result.DateCreated
+      WITH Estudiantes AS (
+        SELECT DISTINCT
+          p.PersonId,
+          p.FirstName,
+          p.LastName,
+          p.SecondLastName,
+          opr.OrganizationPersonRoleId -- Incluir OPRId
+        FROM OrganizationPersonRole opr
+        INNER JOIN Person p ON p.PersonId = opr.PersonId
+        WHERE opr.OrganizationId = @cursoId
+          AND opr.RoleId = 6 -- Estudiantes
+      ),
+      RegistrationsParaEsteAssessment AS (
+          SELECT
+              ar.AssessmentRegistrationId,
+              ar.PersonId,
+              ar.OrganizationPersonRoleId -- Incluir OPRId
+          FROM AssessmentRegistration ar
+          INNER JOIN AssessmentAdministration aa ON ar.AssessmentAdministrationId = aa.AssessmentAdministrationId
+          INNER JOIN Assessment_AssessmentAdministration aaa ON aa.AssessmentAdministrationId = aaa.AssessmentAdministrationId
+          WHERE aaa.AssessmentId = @assessmentId -- Filtrar por el AssessmentId principal
+            AND ar.OrganizationId = @cursoId
+            AND ar.CourseSectionOrganizationId = @asignaturaId
+      )
+      SELECT
+        e.PersonId,
+        e.FirstName,
+        e.LastName,
+        e.SecondLastName,
+        r.AssessmentRegistrationId,
+        r.OrganizationPersonRoleId, -- Pasar OPRId al frontend
+        ar.AssessmentSubtestId,
+        ar.ScoreValue,
+        ar.IsAverage
+      FROM Estudiantes e
+      INNER JOIN RegistrationsParaEsteAssessment r ON e.PersonId = r.PersonId -- Unir con los registros específicos de este Assessment
+      LEFT JOIN AssessmentResult ar ON r.AssessmentRegistrationId = ar.AssessmentRegistrationId
+      ORDER BY e.LastName, e.FirstName, ar.IsAverage DESC, ar.AssessmentSubtestId -- Ordenar para agrupar subnotas y luego promedio
     `;
     const result = await pool.request()
-      .input('assessmentSubtestId', sql.Int, assessmentSubtestId)
+      .input('assessmentId', sql.Int, assessmentId) // Usar el AssessmentId principal
       .input('cursoId', sql.Int, cursoId)
       .input('asignaturaId', sql.Int, asignaturaId)
       .query(query);
 
-    // Organizar los datos por estudiante
+    // Organizar los datos por estudiante y sus notas/promedio
     const estudiantesMap = {}; // Usamos un mapa para agrupar por registrationId
 
     for (const row of result.recordset) {
       const key = row.AssessmentRegistrationId;
-      
+
       if (!estudiantesMap[key]) {
         estudiantesMap[key] = {
           AssessmentRegistrationId: row.AssessmentRegistrationId,
+          PersonId: row.PersonId, // Asegurar que PersonId esté presente
+          OrganizationPersonRoleId: row.OrganizationPersonRoleId, // Asegurar que OPRId esté presente
           FirstName: row.FirstName,
           LastName: row.LastName,
           SecondLastName: row.SecondLastName,
-          subnotas: [],
-          promedio: null,
+          subnotas: [], // Array para las notas individuales de las subcolumnas
+          promedio: null, // Para el promedio
           // Añadir otros campos si son necesarios en el frontend
-          AssessmentRegistrationId: row.AssessmentRegistrationId // Aseguramos que el ID esté en el objeto final
         };
       }
 
-      if (row.IsAverage === 1 && row.ScoreValue !== null) {
-        estudiantesMap[key].promedio = parseFloat(row.ScoreValue); // Convertir a número
-      } else {
-        estudiantesMap[key].subnotas.push(row.ScoreValue !== null ? parseFloat(row.ScoreValue) : null); // Convertir a número o mantener null
+      if (row.IsAverage === 1) {
+          // Es el promedio
+          if (row.ScoreValue !== null) {
+             estudiantesMap[key].promedio = parseFloat(row.ScoreValue); // Convertir a número
+ console.log(`[CARGAR_EXISTENTES] Promedio encontrado para ${row.FirstName} ${row.LastName}: ${estudiantesMap[key].promedio}`);
+          }
+      } else if (row.AssessmentSubtestId !== null) {
+          // Es una subnota individual (no promedio)
+          // Agregar la subnota al array. Mantenemos el orden por el ORDER BY de la consulta.
+           estudiantesMap[key].subnotas.push(row.ScoreValue !== null ? parseFloat(row.ScoreValue) : null); // Convertir a número o mantener null
       }
+       // Si IsAverage es 0 pero AssessmentSubtestId es null, ignorar (podría ser un registro inconsistente)
+
+
     }
 
     const estudiantesConNotas = Object.values(estudiantesMap);
-    
-    console.log(`[CARGAR_EXISTENTES] Estudiantes encontrados: ${estudiantesConNotas.length}`);
-    
+
+    console.log(`[CARGAR_EXISTENTES] Estudiantes encontrados con notas: ${estudiantesConNotas.length}`);
+
     res.status(200).json(estudiantesConNotas);
   } catch (error) {
     console.error('[CARGAR_EXISTENTES][ERROR]', error);
     res.status(500).json({ error: 'Error al cargar notas existentes' });
   }
 };
+
 
 // POST /api/notas/crear-subnotas
 exports.crearSubnotas = async (req, res) => {
