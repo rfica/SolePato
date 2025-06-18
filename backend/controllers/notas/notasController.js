@@ -1308,150 +1308,374 @@ exports.guardarNotasAcumuladas = async (req, res) => {
 };
 
 */
-
 // POST /api/notas/notas-acumuladas/guardar
 exports.guardarNotasAcumuladas = async (req, res) => {
+  const pool = await poolPromise;
+  const transaction = new sql.Transaction(pool);
+  let notasInsertadas = 0;
+  let promediosInsertados = 0;
+  let registrosOmitidos = 0; // Mantener para otros posibles casos
+  let registrosCreados = 0; // Para contar los nuevos registros de inscripción
+
   try {
-    console.log('[GUARDAR_ACUMULATIVA] Iniciando con datos:', JSON.stringify(req.body));
     const { assessmentId, subnotas, fecha, cursoId, asignaturaId } = req.body;
 
-    if (!assessmentId || !Array.isArray(subnotas)) {
+    console.log('[GUARDAR_ACUMULATIVA] Iniciando con datos:', {
+      assessmentId,
+      fecha,
+      cursoId,
+      asignaturaId,
+      subnotas: Array.isArray(subnotas) ? subnotas.length : 'no es array'
+    });
+    console.log('[GUARDAR_ACUMULATIVA] Payload subnotas detallado:', JSON.stringify(subnotas));
+
+
+    if (!assessmentId || !Array.isArray(subnotas) || !cursoId || !asignaturaId) {
+      console.error('[GUARDAR_ACUMULATIVA] Parámetros inválidos recibidos');
       return res.status(400).json({ error: 'Parámetros inválidos' });
     }
 
-    const pool = await poolPromise;
-    const transaction = new sql.Transaction(pool);
     await transaction.begin();
-    
-    try {
-      // 1. Obtener AssessmentSubtestIds para este assessmentId
-      const subtestResult = await new sql.Request(transaction)
-        .input('assessmentId', sql.Int, assessmentId)
+
+    // Obtener o crear AssessmentAdministrationId (Lógica existente, parece correcta)
+    const adminResult = await new sql.Request(transaction)
+      .input('assessmentId', sql.Int, assessmentId)
+      .query(`
+        SELECT TOP 1 aa.AssessmentAdministrationId
+        FROM Assessment_AssessmentAdministration aa
+        WHERE aa.AssessmentId = @assessmentId
+      `);
+
+    let assessmentAdministrationId;
+
+    if (adminResult.recordset.length === 0) {
+      console.log(`[GUARDAR_ACUMULATIVA] No se encontró AssessmentAdministrationId, intentando encontrar huérfana o creando nueva`);
+
+      // Intentar encontrar una AssessmentAdministration que no esté ligada a Assessment_AssessmentAdministration
+       const orphanAdminResult = await new sql.Request(transaction)
         .query(`
-          SELECT ast.AssessmentSubtestId, ast.Identifier
-          FROM AssessmentSubtest ast
-          INNER JOIN AssessmentForm af ON ast.AssessmentFormId = af.AssessmentFormId
-          WHERE af.AssessmentId = @assessmentId
-          ORDER BY ast.AssessmentSubtestId
+          SELECT TOP 1 aa.AssessmentAdministrationId
+          FROM AssessmentAdministration aa
+          LEFT JOIN Assessment_AssessmentAdministration aaa ON aa.AssessmentAdministrationId = aaa.AssessmentAdministrationId
+          WHERE aaa.AssessmentId IS NULL -- Buscar admins sin un enlace de Assessment_AssessmentAdministration
         `);
-        
-      const subtestIds = subtestResult.recordset.map(r => r.AssessmentSubtestId);
-      console.log(`[GUARDAR_ACUMULATIVA] AssessmentSubtestIds encontrados:`, subtestIds);
-      
-      if (subtestIds.length === 0) {
-        console.error(`[GUARDAR_ACUMULATIVA] No se encontraron AssessmentSubtestIds para assessmentId: ${assessmentId}`);
-        await transaction.rollback();
-        return res.status(404).json({ error: 'No se encontraron AssessmentSubtestIds' });
-      }
-      
-      let notasInsertadas = 0;
-      let promediosInsertados = 0;
-      
-      // 2. Procesar cada alumno
-      for (const alumno of subnotas) {
-        const registrationId = alumno.assessmentRegistrationId;
-        
-        if (!registrationId || isNaN(registrationId)) {
-          console.warn(`[GUARDAR_ACUMULATIVA] Registro omitido por ID inválido:`, registrationId);
-          continue;
-        }
-        
-        console.log(`[GUARDAR_ACUMULATIVA] Procesando alumno con registrationId: ${registrationId}`);
-        
-        // 3. Eliminar notas existentes para este registro y estos subtests
-        await new sql.Request(transaction)
-          .input('registrationId', sql.Int, registrationId)
-          .query(`
-            DELETE FROM AssessmentResult 
-            WHERE AssessmentRegistrationId = @registrationId
-            AND AssessmentSubtestId IN (${subtestIds.join(',')})
-          `);
-          
-        console.log(`[GUARDAR_ACUMULATIVA] Eliminadas notas existentes para registrationId: ${registrationId}`);
-        
-        // 4. Insertar subnotas
-        if (Array.isArray(alumno.notas)) {
-          let notasValidas = 0;
-          let sumaNotas = 0;
-          
-          for (let i = 0; i < Math.min(alumno.notas.length, subtestIds.length); i++) {
-            const nota = alumno.notas[i];
-            const subtestId = subtestIds[i];
-            
-            if (nota !== null && nota !== undefined && !isNaN(parseFloat(nota))) {
-              const notaRedondeada = Math.round(parseFloat(nota) * 10) / 10;
-              
-              try {
-                await new sql.Request(transaction)
-                  .input('regId', sql.Int, registrationId)
-                  .input('subtestId', sql.Int, subtestId)
-                  .input('nota', sql.Decimal(4, 1), notaRedondeada)
-                  .query(`
-                    INSERT INTO AssessmentResult
-                    (AssessmentRegistrationId, AssessmentSubtestId, ScoreValue, IsAverage)
-                    VALUES (@regId, @subtestId, @nota, 0)
-                  `);
-                  
-                console.log(`[GUARDAR_ACUMULATIVA] Subnota insertada: regId=${registrationId}, subtestId=${subtestId}, nota=${notaRedondeada}`);
-                notasInsertadas++;
-                notasValidas++;
-                sumaNotas += notaRedondeada;
-              } catch (error) {
-                console.error(`[GUARDAR_ACUMULATIVA] Error al insertar subnota:`, error);
-              }
+
+       if(orphanAdminResult.recordset.length > 0) {
+           assessmentAdministrationId = orphanAdminResult.recordset[0].AssessmentAdministrationId;
+           console.log(`[GUARDAR_ACUMULATIVA] Encontrada AssessmentAdministrationId huérfana: ${assessmentAdministrationId}. Creando enlace.`);
+            // Crear la relación Assessment_AssessmentAdministration
+            await new sql.Request(transaction)
+            .input('assessmentId', sql.Int, assessmentId)
+            .input('adminId', sql.Int, assessmentAdministrationId)
+            .query(`
+                INSERT INTO Assessment_AssessmentAdministration (AssessmentId, AssessmentAdministrationId)
+                VALUES (@assessmentId, @adminId)
+            `);
+       } else {
+           console.log(`[GUARDAR_ACUMULATIVA] No se encontró AssessmentAdministrationId huérfana, creando nueva Admin y enlace.`);
+            const insertAdminResult = await new sql.Request(transaction)
+              .input('fecha', sql.Date, fecha || new Date())
+              .query(`
+                INSERT INTO AssessmentAdministration (AdministrationDate)
+                OUTPUT INSERTED.AssessmentAdministrationId
+                VALUES (@fecha)
+              `);
+
+            if (insertAdminResult.recordset.length > 0) {
+              assessmentAdministrationId = insertAdminResult.recordset[0].AssessmentAdministrationId;
+
+              // Crear la relación Assessment_AssessmentAdministration
+              await new sql.Request(transaction)
+                .input('assessmentId', sql.Int, assessmentId)
+                .input('adminId', sql.Int, assessmentAdministrationId)
+                .query(`
+                  INSERT INTO Assessment_AssessmentAdministration (AssessmentId, AssessmentAdministrationId)
+                  VALUES (@assessmentId, @adminId)
+                `);
+
+              console.log(`[GUARDAR_ACUMULATIVA] Creado nuevo AssessmentAdministrationId: ${assessmentAdministrationId}`);
+            } else {
+              console.error('[GUARDAR_ACUMULATIVA] No se pudo crear AssessmentAdministration');
+              await transaction.rollback();
+              return res.status(500).json({ error: 'No se pudo crear AssessmentAdministration' });
             }
-          }
-          
-          // 5. Calcular e insertar promedio
-          if (notasValidas > 0) {
-            const promedio = Math.round((sumaNotas / notasValidas) * 10) / 10;
-            const subtestId = subtestIds[0]; // Usar el primer subtestId para el promedio
+       }
+
+
+    } else {
+      assessmentAdministrationId = adminResult.recordset[0].AssessmentAdministrationId;
+      console.log(`[GUARDAR_ACUMULATIVA] Usando AssessmentAdministrationId existente: ${assessmentAdministrationId}`);
+    }
+
+    // Obtener todos los AssessmentSubtestId relacionados con este assessmentId
+    const subtestResult = await new sql.Request(transaction)
+      .input('assessmentId', sql.Int, assessmentId)
+      .query(`
+        SELECT ast.AssessmentSubtestId, ast.Identifier
+        FROM AssessmentSubtest ast
+        INNER JOIN AssessmentForm af ON ast.AssessmentFormId = af.AssessmentFormId
+        WHERE af.AssessmentId = @assessmentId
+        ORDER BY ast.AssessmentSubtestId
+      `);
+
+    let subtestIds = subtestResult.recordset.map(r => r.AssessmentSubtestId);
+    console.log(`[GUARDAR_ACUMULATIVA] AssessmentSubtestIds encontrados para el guardado:`, subtestIds);
+
+
+    if (subtestIds.length === 0) {
+        console.error(`[GUARDAR_ACUMULATIVA] No se encontraron AssessmentSubtestIds para assessmentId: ${assessmentId}. No se pueden guardar subnotas.`);
+         // Si no hay subtests, no podemos guardar subnotas, pero la lógica de promedio aún podría ser relevante si se maneja de otra forma.
+         // Sin embargo, para una columna ACUMULATIVA, la expectativa es que haya subtests.
+         await transaction.rollback();
+         return res.status(404).json({ error: 'No se encontraron AssessmentSubtestIds asociados a esta columna. Asegúrese de que se han creado las subnotas.' });
+    }
+
+
+    // Procesar cada alumno
+    for (const alumno of subnotas) {
+      let registrationId = alumno.assessmentRegistrationId;
+      const personId = alumno.personId; // Asumiendo que personId viene en el payload del alumno
+      const organizationPersonRoleId = alumno.organizationPersonRoleId; // Asumiendo que organizationPersonRoleId viene
+
+       console.log(`[GUARDAR_ACUMULATIVA] Procesando alumno:`, {
+         personId,
+         organizationPersonRoleId,
+         notasRecibidas: Array.isArray(alumno.notas) ? alumno.notas.length : 'no es array',
+         promedioRecibido: alumno.promedio,
+         registrationIdRecibido: registrationId
+       });
+
+
+      // >>> MODIFICACIÓN AQUÍ: Buscar o crear AssessmentRegistration si no viene en el payload <<<
+      if (!registrationId || isNaN(registrationId)) {
+           console.log(`[GUARDAR_ACUMULATIVA] registrationId nulo o inválido para PersonId ${personId}. Buscando o creando.`);
+
+           if (!personId || !organizationPersonRoleId || !cursoId || !asignaturaId || !assessmentAdministrationId) {
+                console.error(`[GUARDAR_ACUMULATIVA] Omitido: Datos insuficientes (personId, organizationPersonRoleId, cursoId, asignaturaId o assessmentAdministrationId faltantes) para buscar/crear AssessmentRegistration para alumno:`, alumno);
+                registrosOmitidos++;
+                continue; // No se puede procesar sin datos esenciales
+           }
+
+           try {
+             // 1. Intentar encontrar un AssessmentRegistration existente para esta persona en esta administración
+             const checkRegResult = await new sql.Request(transaction)
+                 .input('assessmentAdministrationId', sql.Int, assessmentAdministrationId)
+                 .input('personId', sql.Int, personId)
+                  // También podemos filtrar por organizationId y CourseSectionOrganizationId si es necesario
+                 .input('cursoId', sql.Int, cursoId)
+                 .input('asignaturaId', sql.Int, asignaturaId)
+                 .query(`
+                   SELECT AssessmentRegistrationId
+                   FROM AssessmentRegistration
+                   WHERE AssessmentAdministrationId = @assessmentAdministrationId
+                     AND PersonId = @personId
+                     AND OrganizationId = @cursoId
+                     AND CourseSectionOrganizationId = @asignaturaId
+                 `);
+
+             if (checkRegResult.recordset.length > 0) {
+               registrationId = checkRegResult.recordset[0].AssessmentRegistrationId;
+               console.log(`[GUARDAR_ACUMULATIVA] AssessmentRegistrationId existente encontrado: ${registrationId}`);
+             } else {
+               // 2. Si no existe, crear un nuevo registro de inscripción
+                console.log(`[GUARDAR_ACUMULATIVA] No se encontró AssessmentRegistrationId existente. Creando nuevo para PersonId ${personId}.`);
+               const insertResult = await new sql.Request(transaction)
+                 .input('assessmentAdministrationId', sql.Int, assessmentAdministrationId)
+                 .input('personId', sql.Int, personId)
+                 .input('cursoId', sql.Int, cursoId)
+                 .input('asignaturaId', sql.Int, asignaturaId)
+                 .input('organizationPersonRoleId', sql.Int, organizationPersonRoleId) // Incluir OPRId si es relevante
+                 .query(`
+                   INSERT INTO AssessmentRegistration (
+                     AssessmentAdministrationId,
+                     PersonId,
+                     OrganizationId, -- Assuming cursoId maps to OrganizationId
+                     CourseSectionOrganizationId, -- Assuming asignaturaId maps to CourseSectionOrganizationId
+                     OrganizationPersonRoleId, -- Store OPRId if needed for lookup later
+                     CreationDate
+                   )
+                   OUTPUT INSERTED.AssessmentRegistrationId
+                   VALUES (
+                     @assessmentAdministrationId,
+                     @personId,
+                     @cursoId,
+                     @asignaturaId,
+                     @organizationPersonRoleId,
+                     GETDATE()
+                   )
+                 `);
+
+               if (insertResult.recordset.length > 0) {
+                 registrationId = insertResult.recordset[0].AssessmentRegistrationId;
+                 console.log(`[GUARDAR_ACUMULATIVA] Creado nuevo AssessmentRegistrationId: ${registrationId}`);
+                 registrosCreados++;
+               } else {
+                 console.error(`[ERROR] No se pudo crear AssessmentRegistration para PersonId: ${personId}`);
+                 // Si falla la creación, no podemos guardar notas para este alumno
+                 registrosOmitidos++;
+                 continue; // Saltar este registro
+               }
+             }
+           } catch (regError) {
+             console.error(`[ERROR] Error al buscar/crear AssessmentRegistration para PersonId ${personId}:`, regError);
+             registrosOmitidos++;
+             continue; // Saltar este registro si hay un error
+           }
+      }
+
+      // Verificar nuevamente si el registrationId es válido después de intentar buscar/crear
+      if (!registrationId || isNaN(registrationId)) {
+          console.warn(`[GUARDAR_ACUMULATIVA] Omitido: registrationId sigue siendo inválido después de buscar/crear para alumno:`, alumno);
+          registrosOmitidos++;
+          continue;
+      }
+
+      // 3. Eliminar TODAS las notas previas relacionadas con este registro y estos subtests
+      // Esto evitará duplicados al re-guardar
+      // NOTA: Solo eliminamos resultados de subtests (IsAverage = 0). La nota promedio (IsAverage = 1)
+      // se sobrescribe si ya existe o se inserta si no.
+      await new sql.Request(transaction)
+        .input('registrationId', sql.Int, registrationId)
+        .query(`
+          DELETE FROM AssessmentResult
+          WHERE AssessmentRegistrationId = @registrationId
+          AND AssessmentSubtestId IN (${subtestIds.join(\',\')}) -- Eliminar solo resultados de subtests
+          AND IsAverage = 0
+        `);
+
+      console.log(`[GUARDAR_ACUMULATIVA] Notas acumulativas previas (subnotas) eliminadas para registrationId: ${registrationId}`);
+
+      // 4. Insertar subnotas
+      let notasValidas = 0;
+      let sumaNotas = 0;
+
+      if (Array.isArray(alumno.notas)) {
+        console.log(`[DEBUG] Intentando insertar ${alumno.notas.length} subnotas para ${registrationId}. SubtestIds disponibles: ${subtestIds.length}`);
+
+        for (let i = 0; i < Math.min(alumno.notas.length, subtestIds.length); i++) {
+          const nota = alumno.notas[i];
+          const subtestId = subtestIds[i];
+
+          // Asegurar que la nota es numérica y no vacía/nula
+          if (nota !== null && nota !== undefined && nota !== '' && !isNaN(parseFloat(nota))) {
+            const notaRedondeada = Math.round(parseFloat(nota) * 10) / 10;
+
+            console.log(`[DEBUG] Insertando subnota: regId=${registrationId}, subtestId=${subtestId}, nota=${notaRedondeada}`);
 
             try {
-              // Insertar promedio
+              // Insertar nuevo registro de subnota
               await new sql.Request(transaction)
-                .input('regId', sql.Int, registrationId)
-                .input('subtestId', sql.Int, subtestId)
-                .input('promedio', sql.Decimal(4, 1), promedio)
+                .input('RegId', sql.Int, registrationId)
+                .input('SubtestId', sql.Int, subtestId)
+                .input('Nota', sql.Decimal(4, 1), notaRedondeada)
+                 .input('Fecha', sql.DateTime, fecha || new Date()) // Usar fecha del payload o actual
                 .query(`
-                  INSERT INTO AssessmentResult                  (AssessmentRegistrationId, AssessmentSubtestId, ScoreValue, IsAverage)
-                  VALUES (@regId, NULL, @promedio, 1)                  `);
+                  INSERT INTO AssessmentResult
+                  (AssessmentRegistrationId, AssessmentSubtestId, ScoreValue, IsAverage, DateCreated)
+                  VALUES (@RegId, @SubtestId, @Nota, 0, @Fecha)
+                `);
 
-              console.log(`[GUARDAR_ACUMULATIVA] Promedio insertado: regId=${registrationId}, subtestId=${subtestId}, promedio=${promedio}`);
-              promediosInsertados++;
-
-
-
-              console.log(`[GUARDAR_ACUMULATIVA] Nota principal insertada: regId=${registrationId}, subtestId=${subtestId}, promedio=${promedio}`);
-            } catch (error) {
-              console.error(`[GUARDAR_ACUMULATIVA] Error al insertar promedio/nota principal:`, error);
+              console.log(`[GUARDAR_ACUMULATIVA] Subnota insertada exitosamente para ${registrationId}, subtestId ${subtestId}`);
+              notasInsertadas++;
+              notasValidas++;
+              sumaNotas += notaRedondeada;
+            } catch (insertError) {
+              console.error(`[ERROR] Error al insertar subnota en BD para registrationId ${registrationId}, subtestId ${subtestId}:`, insertError);
+              // Dependiendo del error, podríamos querer hacer un rollback o continuar.
+              // Por ahora, solo logueamos el error y continuamos con el siguiente.
             }
+          } else {
+            console.warn(`[GUARDAR_ACUMULATIVA] Nota inválida omitida en alumno ${registrationId}, índice ${i}:`, nota);
           }
         }
+      } else {
+           console.warn(`[GUARDAR_ACUMULATIVA] alumno.notas no es un array o está vacío para registrationId ${registrationId}`);
       }
-      
-      await transaction.commit();
-      console.log(`[GUARDAR_ACUMULATIVA] Proceso finalizado exitosamente. Notas insertadas: ${notasInsertadas}, Promedios insertados: ${promediosInsertados}`);
-      
-      res.status(200).json({
-        success: true,
-        message: 'Notas acumulativas guardadas correctamente',
-        stats: {
-          notasInsertadas,
-          promediosInsertados
-        }
-      });
-    } catch (error) {
-      await transaction.rollback();
-      console.error('[GUARDAR_ACUMULATIVA][ERROR]', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error al guardar notas acumulativas',
-        error: error.message || error
-      });
-    }
+
+
+      // 5. Calcular e insertar/actualizar promedio (Nota principal acumulativa)
+      let promedioCalculado = 0;
+      if (notasValidas > 0) {
+        promedioCalculado = Math.round((sumaNotas / notasValidas) * 10) / 10;
+      } else {
+          // Si no hay notas válidas, el promedio es 0
+           console.log(`[GUARDAR_ACUMULATIVA] No hay notas válidas para calcular promedio para registrationId ${registrationId}. Promedio será 0.`);
+      }
+
+      // Usar el promedio recibido del frontend si es válido, de lo contrario, usar el calculado
+      const promedioFinal = (alumno.promedio !== null && alumno.promedio !== undefined && !isNaN(parseFloat(alumno.promedio)))
+                              ? Math.round(parseFloat(alumno.promedio) * 10) / 10
+                              : promedioCalculado;
+
+      console.log(`[DEBUG] Promedio calculado: ${promedioCalculado}, Promedio recibido: ${alumno.promedio}, Promedio final a guardar: ${promedioFinal}`);
+
+
+      // Eliminar cualquier registro de promedio existente para este registro y este AssessmentId principal
+       // Antes insertábamos el promedio con SubtestId; ahora lo guardaremos con SubtestId = NULL.
+       // Eliminamos cualquier promedio anterior asociado a este registrationId Y este assessmentId principal,
+       // independientemente de su AssessmentSubtestId anterior (por si acaso hubo un guardado previo con SubtestId).
+       await new sql.Request(transaction)
+         .input('registrationId', sql.Int, registrationId)
+         .input('assessmentId', sql.Int, assessmentId)
+         .query(`
+           DELETE FROM AssessmentResult
+           WHERE AssessmentRegistrationId = @registrationId
+             AND AssessmentId = @assessmentId
+             AND IsAverage = 1 -- Asegurarse de que eliminamos solo el promedio
+         `);
+
+       console.log(`[GUARDAR_ACUMULATIVA] Promedio previo eliminado para registrationId: ${registrationId}`);
+
+
+      // *** MODIFICACIÓN FINAL AQUÍ: Insertar el promedio asociado al AssessmentId principal ***
+      // Lo asociamos al AssessmentRegistrationId y establecemos AssessmentSubtestId a NULL.
+      // Usamos el AssessmentId en la consulta aunque AssessmentResult no tenga AssessmentId directamente.
+      // La relación es a través de AssessmentRegistration -> AssessmentAdministration -> Assessment.
+      // Para la inserción directa en AssessmentResult, necesitamos el AssessmentRegistrationId.
+      // La consulta de carga posterior necesitará unirse a AssessmentRegistration/Administration para filtrar por AssessmentId principal.
+
+      try {
+          await new sql.Request(transaction)
+            .input('regId', sql.Int, registrationId)
+            .input('promedio', sql.Decimal(4, 1), promedioFinal)
+            .input('fecha', sql.DateTime, fecha || new Date()) // Usar fecha del payload o actual
+            .query(`
+              INSERT INTO AssessmentResult
+              (AssessmentRegistrationId, AssessmentSubtestId, ScoreValue, IsAverage, DateCreated)
+              VALUES (@regId, NULL, @promedio, 1, @Fecha) -- Insertamos NULL en AssessmentSubtestId para el promedio
+            `);
+
+          console.log(`[GUARDAR_ACUMULATIVA] Promedio insertado exitosamente: regId=${registrationId}, promedio=${promedioFinal}`);
+          promediosInsertados++;
+
+      } catch (insertAvgError) {
+         console.error(`[ERROR] Error al insertar promedio en BD para registrationId ${registrationId}:`, insertAvgError);
+          // Si falla la inserción del promedio, logueamos el error.
+      }
+
+      // >>> ELIMINADA LA SEGUNDA INSERCIÓN DEL PROMEDIO DUPLICADA <<<
+
+    } // Fin del bucle for (const alumno of subnotas)
+
+
+    // Si llegamos aquí sin errores no capturados, la transacción puede ser commiteada
+    await transaction.commit();
+    console.log(`[GUARDAR_ACUMULATIVA] Proceso finalizado exitosamente. Estadísticas: Notas insertadas: ${notasInsertadas}, Promedios insertados: ${promediosInsertados}, Registros omitidos: ${registrosOmitidos}, Registros de inscripción creados: ${registrosCreados}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Notas acumulativas guardadas correctamente',
+      stats: {
+        notasInsertadas,
+        promediosInsertados,
+        registrosOmitidos,
+        registrosCreados
+      }
+    });
   } catch (error) {
-    console.error('[GUARDAR_ACUMULATIVA][ERROR]', error);
+    // Si algo falla en cualquier punto después de begin(), se hace rollback
+    await transaction.rollback();
+    console.error('[GUARDAR_ACUMULATIVA][ERROR] Falló la transacción:', error);
     res.status(500).json({
       success: false,
       message: 'Error al guardar notas acumulativas',
@@ -1459,6 +1683,7 @@ exports.guardarNotasAcumuladas = async (req, res) => {
     });
   }
 };
+
 
 
 /*
