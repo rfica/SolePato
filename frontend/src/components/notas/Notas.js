@@ -632,7 +632,6 @@ useEffect(() => {
     }
   }, [visible, cursoId, asignaturaId]);
   
-  
   const handleGuardarConfiguracion = async () => {
     if (!assessmentId) {
       console.error("No hay assessmentId");
@@ -642,16 +641,16 @@ useEffect(() => {
     try {
       let fechaFormateada = fechaEvaluacion;
 
-      // La fecha ya debe venir en formato YYYY-MM-DD desde el input type=\"date\"\n
+      // La fecha ya debe venir en formato YYYY-MM-DD desde el input type="date"
       // No necesitamos convertirla, solo verificamos que tenga el formato correcto
-      if (fechaEvaluacion && fechaEvaluacion.includes(\'-\')) {
-        console.log(\"[DEBUG FECHA] Fecha para BD:\", fechaFormateada);
+      if (fechaEvaluacion && fechaEvaluacion.includes('-')) {
+        console.log("[DEBUG FECHA] Fecha para BD:", fechaFormateada);
       }
 
       const payload = {
         assessmentId: assessmentId,
-        title: columna || \'\',
-        descripcion: descripcion || \'\',
+        title: columna || '',
+        descripcion: descripcion || '',
         tipoEvaluacionId: evaluacion || null,
         tipoNotaId: tipoColumna || 1,
         escalaId: escala || null,
@@ -661,6 +660,200 @@ useEffect(() => {
         objetivos: oasAgregados.map(oa => oa.LearningObjectiveId),
         usuarioId: 1
       };
+
+      console.log("[DEBUG] Enviando configuración:", payload);
+
+      const response = await axios.post('http://localhost:5000/api/notas/configurar-columna', payload);
+
+      if (response.data.success) {
+        Swal.fire({
+          icon: 'success',
+          title: 'Configuración guardada',
+          text: 'La configuración de la columna se guardó correctamente.',
+          timer: 2000,
+          showConfirmButton: false
+        });
+
+        // Si es tipo acumulativa, guardar también las subnotas
+        if (tipoColumna === '2' && subnotas.length > 0) {
+          console.log("[DEBUG] Guardando subnotas para columna acumulativa");
+
+         // --- INICIO MODIFICACIÓN CLAVE: Construir el array subnotas para el backend ---
+         const subnotasParaBackend = [];
+
+         // Necesitamos los IDs de las subnotas (AssessmentSubtestId) y sus Identifiers (SUB1, SUB2, etc.)
+         // Asumimos que esta información está disponible en configColumna si la columna ya existía.
+         // Si es una columna nueva, esta información podría no estar disponible hasta que el backend cree los subtests.
+         // Esto es un punto potencial de fallo si el backend no devuelve los subtest IDs al crear/configurar.
+
+
+         let subtestInfo = [];
+         // Buscamos subtest info en configColumna (ideal si el backend la devuelve al cargar config)
+         if (configColumna && configColumna.subtests && Array.isArray(configColumna.subtests) && configColumna.subtests.length > 0) {
+              // Ordenar los subtests por Identifier para asegurar que SUB1, SUB2, etc. estén en orden
+              subtestInfo = [...configColumna.subtests].sort((a, b) => {
+                  const idA = parseInt(a.Identifier.replace('SUB', ''));
+                  const idB = parseInt(b.Identifier.replace('SUB', ''));
+                  return idA - idB;
+              });
+              console.log("[DEBUG FRONTEND] Usando información de subtests de configColumna (ordenada):", subtestInfo);
+         } else {
+              // Si no está en configColumna, intentamos obtenerla de alguna otra fuente si es posible,
+              // o asumimos que necesitaremos un paso adicional para crear los subtests si es una columna nueva.
+              // **TODO: Implementar lógica para obtener subtestInfo si no está en configColumna.**
+              // Por ahora, para poder construir el payload, generaremos placeholders.
+              // ESTO ES UN RIESGO - EL BACKEND NECESITA LOS IDs REALES.
+               console.warn("[WARN FRONTEND] No se encontró información de subtests en configColumna. Generando placeholders para el payload.");
+               // Generar placeholders basándonos en el número de notas del primer alumno
+               if (subnotas.length > 0 && Array.isArray(subnotas[0].notas)) {
+                    subtestInfo = subnotas[0].notas.map((_, index) => ({
+
+                        // IMPORTANTE: Estos IDs serán NULL y probablemente causen error en el backend.
+                        // Esto es solo para darle la estructura al payload.
+                        AssessmentSubtestId: null, // <- Este DEBE ser el ID real del backend
+                        Identifier: `SUB${index + 1}` // <- Este DEBE ser el Identifier real del backend
+                    }));
+                    // Ordenar estos placeholders también por Identifier
+                     subtestInfo.sort((a, b) => {
+                         const idA = parseInt(a.Identifier.replace('SUB', ''));
+                         const idB = parseInt(b.Identifier.replace('SUB', ''));
+                         return idA - idB;
+                     });
+
+               } else {
+                   console.error("[ERROR FRONTEND] No hay información de subnotas en el estado para generar placeholders.");
+                   // No se puede construir el payload sin información de las subcolumnas.
+                   Swal.fire({
+                     icon: 'error',
+                     title: 'Error',
+                     text: 'No se pudo obtener la información de las subnotas para guardar.',
+                   });
+                   // onClose(); // Considerar cerrar el modal si no se puede guardar
+                   return; // Salir de la función
+               }
+         }
+
+         subnotas.forEach(alumno => {
+             // Asegurarse de tener un assessmentRegistrationId para este estudiante
+             // Si es null, la validación en el backend debería manejar la búsqueda/creación.
+             const alumnoAssessmentRegistrationId = alumno.assessmentRegistrationId;
+             // Si el registrationId es nulo o indefinido, no podemos procesar este alumno.
+             if (alumnoAssessmentRegistrationId === null || alumnoAssessmentRegistrationId === undefined) {
+                 console.warn(`[WARN FRONTEND] Omitiendo guardar subnotas para alumno sin AssessmentRegistrationId: ${alumno.nombre}`);
+                 return; // Saltar a la siguiente iteración del forEach si no hay RegistrationId
+             }
+
+             if (Array.isArray(alumno.notas)) {
+               // Iterar sobre las notas individuales del alumno y sus pesos
+               // Asegurarse de no exceder el número de subtests disponibles
+               for (let idx = 0; idx < Math.min(alumno.notas.length, subtestInfo.length); idx++) {
+                  const score = alumno.notas[idx];
+                  const peso = (alumno.pesos && Array.isArray(alumno.pesos) && idx < alumno.pesos.length) ? alumno.pesos[idx] : 0; // Obtener peso si existe
+                  const subtest = subtestInfo[idx]; // Obtener la información del subtest correspondiente
+
+                  const scoreValue = (score !== null && score !== undefined && score !== '' && !isNaN(parseFloat(score))) ? parseFloat(score) : null;
+                  const weightValue = (peso !== null && peso !== undefined && peso !== '' && !isNaN(parseFloat(peso))) ? parseFloat(peso) : 0;
+
+                  // Solo agregar la subnota al payload si hay un score válido
+                  if (scoreValue !== null) {
+                      // Asegurarse de que tenemos un subtestId válido (no null si no es placeholder)
+                      if (subtest.AssessmentSubtestId === null) {
+                          console.warn(`[WARN FRONTEND] AssessmentSubtestId es null para ${subtest.Identifier}. No se puede guardar esta subnota.`);
+                          continue; // Saltar esta subnota si no tenemos un ID real
+                      }
+
+                      subnotasParaBackend.push({
+                          assessmentRegistrationId: alumnoAssessmentRegistrationId, // ID del registro del estudiante para esta evaluación
+                          assessmentSubtestId: subtest.AssessmentSubtestId, // ID de la subnota específica (OBTENIDO DE subtestInfo)
+                          score: scoreValue, // La nota individual
+                          identifier: subtest.Identifier, // Identifier de la subnota (para referencia, quizás no estrictamente necesario en backend si usa SubtestId)
+                          weight: weightValue // Peso de la subnota (OBTENido de alumno.pesos)
+                      });
+                  } else {
+                      console.log(`[DEBUG FRONTEND] Nota nula o inválida para ${alumno.nombre}, ${subtest.Identifier}. No se agrega al payload.`);
+                  }
+               }
+             } else {
+                  console.warn(`[WARN FRONTEND] El array de notas del alumno ${alumno.nombre} no es válido.`);
+             }
+         });
+
+         console.log("[DEBUG FRONTEND] Payload de subnotas para backend (reestructurado):", subnotasParaBackend);
+         // --- FIN MODIFICACIÓN CLAVE ---
+
+         // Solo enviar si hay subnotas para guardar
+         if (subnotasParaBackend.length > 0) {
+           try {
+               // El endpoint '/api/notas/notas-acumuladas/guardar' espera un assessmentId
+               // y un array de objetos que representen los AssessmentResult individuales.
+               const respuesta = await axios.post('http://localhost:5000/api/notas/notas-acumuladas/guardar', {
+                   assessmentId: assessmentId, // ID de la nota principal
+                   // NO incluimos assessmentSubtestId a nivel superior, ya que cada objeto en subnotasParaBackend lo tiene.
+                   subnotas: subnotasParaBackend // ENVIAR EL ARRAY REESTRUCTURADO DE OBJETOS AssessmentResult
+               });
+
+               console.log("[DEBUG FRONTEND] Respuesta al guardar subnotas:", respuesta.data);
+
+               if (respuesta.data.success) {
+                   Swal.fire({
+                       icon: 'success',
+                       title: 'Subnotas guardadas',
+                       text: 'Las subnotas se guardaron correctamente.',
+                       timer: 2000,
+                       showConfirmButton: false
+                   });
+                   // Si el guardado de subnotas fue exitoso, actualizar la tabla principal si es necesario
+                   // (Por ejemplo, si el backend devuelve los promedios actualizados)
+                   // window.actualizarNotasEnTabla(respuesta.data.notasActualizadas); // Si el backend devuelve las notas completas
+               } else {
+                    Swal.fire({
+                       icon: 'warning',
+                       title: 'Advertencia',
+                       text: respuesta.data.message || 'La configuración se guardó, pero hubo un problema al guardar las subnotas.',
+                    });
+               }
+
+           } catch (error) {
+             console.error("[ERROR FRONTEND] Error al guardar subnotas:", error);
+             Swal.fire({
+               icon: 'warning',
+               title: 'Advertencia',
+               text: 'La configuración se guardó, pero hubo un problema al guardar las subnotas.',
+
+             });
+           }
+         } else {
+             console.log("[DEBUG FRONTEND] No hay subnotas válidas para enviar al backend.");
+              Swal.fire({
+               icon: 'info',
+               title: 'Sin subnotas para guardar',
+               text: 'No se encontraron notas ingresadas para guardar en las subcolumnas.',
+               timer: 2000,
+               showConfirmButton: false
+             });
+         }
+       }
+
+       // CERRAR EL MODAL SOLO DESPUÉS DE INTENTAR GUARDAR TODO
+       // onClose(); // Comentado temporalmente para depuración, descomentar si se desea cerrar siempre
+     } else {
+       Swal.fire({
+         icon: 'error',
+         title: 'Error',
+         text: 'No se pudo guardar la configuración. Intente nuevamente.',
+       });
+     }
+   } catch (error) {
+     console.error("[ERROR FRONTEND] Error al guardar configuración principal:", error);
+     Swal.fire({
+       icon: 'error',
+       title: 'Error',
+       text: 'Ocurrió un error al guardar la configuración.',
+
+     });
+   }
+ }; // <-- **FIN DE LA FUNCIÓN handleGuardarConfiguracion**
+
 
       console.log(\"[DEBUG] Enviando configuración:\", payload);
 
