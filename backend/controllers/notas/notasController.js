@@ -2190,6 +2190,8 @@ exports.cargarNotasAcumulativasExistentes = async (req, res) => {
       FROM Estudiantes e
       INNER JOIN RegistrationsParaEsteAssessment r ON e.PersonId = r.PersonId -- Unir con los registros específicos de este Assessment
       LEFT JOIN AssessmentResult ar ON r.AssessmentRegistrationId = ar.AssessmentRegistrationId
+      -- >> Eliminar la siguiente línea <<
+      -- WHERE ar.AssessmentSubtestId = @assessmentSubtestId 
       ORDER BY e.LastName, e.FirstName, ar.IsAverage DESC, ar.AssessmentSubtestId -- Ordenar para agrupar subnotas y luego promedio
     `;
     const result = await pool.request()
