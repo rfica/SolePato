@@ -1539,7 +1539,7 @@ exports.guardarNotasAcumuladas = async (req, res) => {
         .query(`
           DELETE FROM AssessmentResult
           WHERE AssessmentRegistrationId = @registrationId
-          AND AssessmentSubtestId IN (${subtestIds.join(\',\')}) -- Eliminar solo resultados de subtests
+          AND AssessmentSubtestId IN (${subtestIds.join(',')}) -- Eliminar solo resultados de subtests
           AND IsAverage = 0
         `);
 
