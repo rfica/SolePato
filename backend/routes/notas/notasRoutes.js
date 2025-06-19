@@ -42,7 +42,7 @@ router.get('/configurar-columna/:assessmentId', notasController.obtenerConfigura
 router.get('/assessment-administration/:assessmentId', notasController.getAssessmentAdministration);
 
 // Ruta para crear un registro de inscripción
-router.post('/crear-registro', notasController.crearRegistro);
+// router.post('/crear-registro', notasController.crearRegistro);
 
 router.post('/log-cambio-columna', notasController.logCambioColumna);
 
@@ -56,15 +56,18 @@ router.post('/notas-acumuladas/cargar-existentes', notasController.cargarNotasAc
 router.post('/crear-assessment-registrations', notasController.crearAssessmentRegistrations);
 
 // Descomentar y actualizar la ruta para obtener registros de inscripción
-router.post('/obtener-assessment-registrations', notasController.obtenerAssessmentRegistrations);
+// router.post('/obtener-assessment-registrations', notasController.obtenerAssessmentRegistrations);
 
 // Limpiar datos previos al cambiar tipo de nota
 router.delete('/limpiar-datos-previos', notasController.limpiarDatosPrevios);
 
 // Crear subnotas para notas acumulativas
-router.post('/crear-subnotas', notasController.crearSubnotas);
+// router.post('/crear-subnotas', notasController.crearSubnotas);
 
 // Agrega esta ruta después de las rutas existentes
-router.post('/corregir-subtestid-nulos', notasController.corregirSubtestIdNulos);
+// router.post('/corregir-subtestid-nulos', notasController.corregirSubtestIdNulos);
+
+// Actualizar tipo de columna
+router.post('/actualizar-tipo-columna', notasController.actualizarTipoColumna);
 
 module.exports = router;
