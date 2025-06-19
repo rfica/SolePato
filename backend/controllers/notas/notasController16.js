@@ -1236,6 +1236,7 @@ exports.logCambioColumna = async (req, res) => {
 // Y reemplazarla con:
 // .input('AssessmentRevisionDate', sql.Date, fechaFormateada) 
 
+
 // POST /api/notas/notas-acumuladas/guardar
 exports.guardarNotasAcumuladas = async (req, res) => {
   const pool = await poolPromise;
@@ -1269,25 +1270,17 @@ exports.guardarNotasAcumuladas = async (req, res) => {
     const assessmentQuery = await new sql.Request(transaction)
       .input('assessmentId', sql.Int, assessmentId)
       .query(`
-        SELECT Identifier, Title
+        SELECT Identifier
         FROM Assessment
         WHERE AssessmentId = @assessmentId
       `);
     
     let assessmentIdentifier = 'N1'; // Valor predeterminado
-    let assessmentTitle = 'Evaluación N1'; // Valor predeterminado
-    if (assessmentQuery.recordset.length > 0) {
-      if (assessmentQuery.recordset[0].Identifier) {
-        assessmentIdentifier = assessmentQuery.recordset[0].Identifier;
-      }
-      if (assessmentQuery.recordset[0].Title) {
-        assessmentTitle = assessmentQuery.recordset[0].Title;
-      } else {
-        assessmentTitle = `Evaluación ${assessmentIdentifier}`;
-      }
+    if (assessmentQuery.recordset.length > 0 && assessmentQuery.recordset[0].Identifier) {
+      assessmentIdentifier = assessmentQuery.recordset[0].Identifier;
     }
     
-    console.log(`[GUARDAR_ACUMULATIVA] Identificador de evaluación principal: ${assessmentIdentifier}, Título: ${assessmentTitle}`);
+    console.log(`[GUARDAR_ACUMULATIVA] Identificador de evaluación principal: ${assessmentIdentifier}`);
 
     // Obtener o crear AssessmentAdministrationId
     const adminResult = await new sql.Request(transaction)
@@ -1379,48 +1372,34 @@ exports.guardarNotasAcumuladas = async (req, res) => {
       .filter((value, index, self) => value && self.indexOf(value) === index);
     
     // Si no hay identificadores específicos o son los antiguos (SUB1, SUB2), generar los nuevos
-    if (identifiers.length === 0 || identifiers.includes('SUB1') || identifiers.includes('SUB2')) {
-      // Crear un nuevo conjunto de identificadores usando el formato N1.1, N1.2, etc.
-      const nuevosIdentificadores = {};
-      
-      // Si hay identificadores antiguos, mapearlos a los nuevos
-      if (identifiers.includes('SUB1') || identifiers.includes('SUB2')) {
-        identifiers.forEach(id => {
-          if (id === 'SUB1') {
-            nuevosIdentificadores[id] = `${assessmentIdentifier}.1`;
-          } else if (id === 'SUB2') {
-            nuevosIdentificadores[id] = `${assessmentIdentifier}.2`;
-          } else {
-            nuevosIdentificadores[id] = id; // Mantener otros identificadores
-          }
-        });
-        
-        // Actualizar los identificadores en las subnotas
-        subnotas.forEach(subnota => {
-          if (subnota.identifier && nuevosIdentificadores[subnota.identifier]) {
-            console.log(`[GUARDAR_ACUMULATIVA] Mapeando identificador ${subnota.identifier} a ${nuevosIdentificadores[subnota.identifier]}`);
-            subnota.identifier = nuevosIdentificadores[subnota.identifier];
-          }
-        });
+    if (identifiers.length === 0 || (identifiers.includes('SUB1') && identifiers.includes('SUB2'))) {
+      // Si son los antiguos, mapearlos a los nuevos
+      const mapeoIdentificadores = {};
+      if (identifiers.includes('SUB1')) {
+        mapeoIdentificadores['SUB1'] = `${assessmentIdentifier}.1`;
+      }
+      if (identifiers.includes('SUB2')) {
+        mapeoIdentificadores['SUB2'] = `${assessmentIdentifier}.2`;
       }
       
-      // Actualizar la lista de identificadores
-      identifiers = subnotas
-        .map(s => s.identifier)
-        .filter((value, index, self) => value && self.indexOf(value) === index);
-      
-      // Si aún no hay identificadores, crear los nuevos con el formato correcto
-      if (identifiers.length === 0) {
-        identifiers = [`${assessmentIdentifier}.1`, `${assessmentIdentifier}.2`];
-        
-        // Asignar estos identificadores a las subnotas existentes
-        let contador = 0;
+      // Actualizar los identificadores en las subnotas
+      if (Object.keys(mapeoIdentificadores).length > 0) {
         subnotas.forEach(subnota => {
-          if (!subnota.identifier) {
-            subnota.identifier = identifiers[contador % 2];
-            contador++;
+          if (subnota.identifier && mapeoIdentificadores[subnota.identifier]) {
+            console.log(`[GUARDAR_ACUMULATIVA] Mapeando identificador ${subnota.identifier} a ${mapeoIdentificadores[subnota.identifier]}`);
+            subnota.identifier = mapeoIdentificadores[subnota.identifier];
           }
         });
+        
+        // Actualizar la lista de identificadores
+        identifiers = subnotas
+          .map(s => s.identifier)
+          .filter((value, index, self) => value && self.indexOf(value) === index);
+      }
+      
+      // Si aún no hay identificadores, crear los nuevos
+      if (identifiers.length === 0) {
+        identifiers.push(`${assessmentIdentifier}.1`, `${assessmentIdentifier}.2`);
       }
     }
     
@@ -1429,7 +1408,7 @@ exports.guardarNotasAcumuladas = async (req, res) => {
     // Crear la consulta dinámica para verificar subnotas existentes
     const placeholders = identifiers.map((_, i) => `@id${i}`).join(', ');
     const subtestQuery = `
-      SELECT AssessmentSubtestId, Identifier, AssessmentFormId
+      SELECT AssessmentSubtestId, Identifier
       FROM AssessmentSubtest
       WHERE Identifier IN (${placeholders})
     `;
@@ -1443,80 +1422,50 @@ exports.guardarNotasAcumuladas = async (req, res) => {
 
     let subtestMap = {};
     
-    // MEJORA: Siempre crear y utilizar AssessmentForm
+    // MEJORA 3 (opcional): Preparar para AssessmentForm
     let assessmentFormId = null;
-    
-    // 1. Intentar encontrar un AssessmentForm existente para este Assessment
-    const formResult = await new sql.Request(transaction)
-      .input('assessmentId', sql.Int, assessmentId)
-      .query(`
-        SELECT TOP 1 AssessmentFormId 
-        FROM AssessmentForm 
-        WHERE AssessmentId = @assessmentId
-      `);
-    
-    if (formResult.recordset.length > 0) {
-      // Si existe, usarlo
-      assessmentFormId = formResult.recordset[0].AssessmentFormId;
-      console.log(`[GUARDAR_ACUMULATIVA] Usando AssessmentFormId existente: ${assessmentFormId}`);
-    } else {
-      // Si no existe, crear uno nuevo con los campos conocidos de la tabla
-      try {
-        const newFormResult = await new sql.Request(transaction)
-          .input('assessmentId', sql.Int, assessmentId)
-          .input('formNumber', sql.NVarChar, assessmentIdentifier)
-          .input('name', sql.NVarChar, assessmentTitle)
-          .input('title', sql.NVarChar, `Formulario para evaluación ${assessmentIdentifier}`)
-          .input('version', sql.NVarChar, '1.0')
-          .input('publishedDate', sql.Date, new Date())
-          .query(`
-            INSERT INTO AssessmentForm (
-              AssessmentId,
-              FormNumber,
-              Name,
-              Title,
-              Version,
-              PublishedDate
-            )
-            OUTPUT INSERTED.AssessmentFormId
-            VALUES (
-              @assessmentId,
-              @formNumber,
-              @name,
-              @title,
-              @version,
-              @publishedDate
-            )
-          `);
-        
-        if (newFormResult.recordset.length > 0) {
-          assessmentFormId = newFormResult.recordset[0].AssessmentFormId;
-          console.log(`[GUARDAR_ACUMULATIVA] Creado nuevo AssessmentFormId: ${assessmentFormId}`);
-        } else {
+    try {
+      const formResult = await new sql.Request(transaction)
+        .input('assessmentId', sql.Int, assessmentId)
+        .query(`
+          SELECT TOP 1 af.AssessmentFormId 
+          FROM AssessmentForm af 
+          WHERE af.AssessmentId = @assessmentId
+        `);
+      
+      if (formResult.recordset.length > 0) {
+        assessmentFormId = formResult.recordset[0].AssessmentFormId;
+        console.log(`[GUARDAR_ACUMULATIVA] Usando AssessmentFormId existente: ${assessmentFormId}`);
+      } else {
+        // Intentar crear un nuevo form si la tabla existe
+        try {
+          const newFormResult = await new sql.Request(transaction)
+            .input('assessmentId', sql.Int, assessmentId)
+            .input('title', sql.NVarChar, `Formulario para evaluación ${assessmentIdentifier}`)
+            .query(`
+              INSERT INTO AssessmentForm (
+                AssessmentId,
+                Title
+              )
+              OUTPUT INSERTED.AssessmentFormId
+              VALUES (
+                @assessmentId,
+                @title
+              )
+            `);
+          
+          if (newFormResult.recordset.length > 0) {
+            assessmentFormId = newFormResult.recordset[0].AssessmentFormId;
+            console.log(`[GUARDAR_ACUMULATIVA] Creado nuevo AssessmentFormId: ${assessmentFormId}`);
+          }
+        } catch (formError) {
+          // Si hay error, probablemente la tabla no existe o no tiene los campos esperados
           console.log('[GUARDAR_ACUMULATIVA] No se pudo crear AssessmentForm, continuando sin él');
         }
-      } catch (formError) {
-        console.error('[GUARDAR_ACUMULATIVA] Error al crear AssessmentForm:', formError.message);
-        
-        // Intento de inserción mínima con solo los campos obligatorios
-        try {
-          const minimalInsertResult = await new sql.Request(transaction)
-            .input('assessmentId', sql.Int, assessmentId)
-            .query(`
-              INSERT INTO AssessmentForm (AssessmentId)
-              OUTPUT INSERTED.AssessmentFormId
-              VALUES (@assessmentId)
-            `);
-            
-          if (minimalInsertResult.recordset.length > 0) {
-            assessmentFormId = minimalInsertResult.recordset[0].AssessmentFormId;
-            console.log(`[GUARDAR_ACUMULATIVA] Creado AssessmentFormId mínimo: ${assessmentFormId}`);
-          }
-        } catch (minimalError) {
-          console.error('[GUARDAR_ACUMULATIVA] Error en inserción mínima:', minimalError.message);
-          console.log('[GUARDAR_ACUMULATIVA] Continuando sin AssessmentForm');
-        }
       }
+    } catch (formError) {
+      // Si hay error, probablemente la tabla no existe
+      console.log('[GUARDAR_ACUMULATIVA] No se pudo obtener AssessmentForm, continuando sin él');
     }
     
     // Crear las subnotas que no existan
@@ -1543,8 +1492,8 @@ exports.guardarNotasAcumuladas = async (req, res) => {
             Title, 
             Description,
             RefAssessmentSubtestTypeId,
-            WeightPercent,
-            AssessmentFormId
+            WeightPercent
+            ${assessmentFormId ? ', AssessmentFormId' : ''}
           )
           OUTPUT INSERTED.AssessmentSubtestId
           VALUES (
@@ -1552,8 +1501,8 @@ exports.guardarNotasAcumuladas = async (req, res) => {
             @title,
             @description,
             @refAssessmentSubtestTypeId,
-            @weightPercent,
-            @assessmentFormId
+            @weightPercent
+            ${assessmentFormId ? ', @assessmentFormId' : ''}
           )
         `;
         
@@ -1562,8 +1511,11 @@ exports.guardarNotasAcumuladas = async (req, res) => {
           .input('title', sql.NVarChar, title)
           .input('description', sql.NVarChar, `${title} para evaluación ${assessmentIdentifier}`)
           .input('refAssessmentSubtestTypeId', sql.Int, 1) // MEJORA 2: Tipo normal para subnotas
-          .input('weightPercent', sql.Float, weight)
-          .input('assessmentFormId', sql.Int, assessmentFormId);
+          .input('weightPercent', sql.Float, weight);
+        
+        if (assessmentFormId) {
+          subtestInsertRequest.input('assessmentFormId', sql.Int, assessmentFormId);
+        }
         
         const subtestInsertResult = await subtestInsertRequest.query(insertSubtestQuery);
         
@@ -1572,20 +1524,6 @@ exports.guardarNotasAcumuladas = async (req, res) => {
         console.log(`[GUARDAR_ACUMULATIVA] Creado AssessmentSubtest ${identifier} con id: ${subtestId}`);
       } else {
         subtestMap[identifier] = existingSubtest.AssessmentSubtestId;
-        
-        // Si el subtest existe pero no tiene AssessmentFormId, actualizarlo
-        if (assessmentFormId && (!existingSubtest.AssessmentFormId || existingSubtest.AssessmentFormId === null)) {
-          console.log(`[GUARDAR_ACUMULATIVA] Actualizando AssessmentFormId para subtest existente ${existingSubtest.AssessmentSubtestId}`);
-          
-          await new sql.Request(transaction)
-            .input('subtestId', sql.Int, existingSubtest.AssessmentSubtestId)
-            .input('assessmentFormId', sql.Int, assessmentFormId)
-            .query(`
-              UPDATE AssessmentSubtest
-              SET AssessmentFormId = @assessmentFormId
-              WHERE AssessmentSubtestId = @subtestId
-            `);
-        }
       }
     }
     
@@ -1863,6 +1801,7 @@ exports.guardarNotasAcumuladas = async (req, res) => {
     });
   }
 };
+
 
 
 // POST /api/notas/get-notas-acumuladas
