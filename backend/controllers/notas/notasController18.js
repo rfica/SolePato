@@ -1230,50 +1230,11 @@ exports.logCambioColumna = async (req, res) => {
 
 //****************BACK PARA ACUMULATIVA
 
-/**
-
-Guarda notas de tipo acumulativa.
-
-Elimina notas directas anteriores (sin subnota asociada).
-
-Crea subnotas con IsAverage = 0 y una nota final promedio con IsAverage = 1.
-
-Usa AssessmentResultGroup para agrupar las notas por estudiante.
-
-Garantiza consistencia creando o reutilizando AssessmentForm, AssessmentSubtest, AssessmentRegistration y AssessmentAdministration.
-*/
-
-
-/**
-Comentario técnico moderado
-Endpoint para guardar notas acumulativas en el sistema.
-
-Este proceso realiza las siguientes operaciones:
-
-Limpia subnotas huérfanas antiguas (SUB1, SUB2) no utilizadas.
-
-Obtiene o crea la administración (AssessmentAdministration) de la evaluación.
-
-Asegura la existencia de un AssessmentForm y registra subnotas (AssessmentSubtest) según identificadores (N1.1, N1.2, etc.).
-
-Elimina:
-
-Notas directas anteriores (AssessmentResult sin subtest y con IsAverage = 0).
-
-Grupos y resultados anteriores para evitar duplicidad.
-
-Agrupa cada conjunto de subnotas con AssessmentResultGroup, y registra:
-
-Subnotas (IsAverage = 0).
-
-Promedio calculado (IsAverage = 1).
-
-Calcula promedio ponderado o simple, según pesos recibidos.
-
-Resultado: sistema consistente con trazabilidad por estudiante y por grupo de notas acumulativas.
-*/
-
-
+// Corrección para la función crearHojaNotas
+// Buscar esta línea en el archivo notasController.js:
+// .input('AssessmentRevisionDate', sql.Date, fechaEvaluacion)
+// Y reemplazarla con:
+// .input('AssessmentRevisionDate', sql.Date, fechaFormateada) 
 
 
 // POST /api/notas/notas-acumuladas/guardar
@@ -1285,7 +1246,6 @@ exports.guardarNotasAcumuladas = async (req, res) => {
   let registrosOmitidos = 0;
   let registrosCreados = 0;
   let gruposCreados = 0;
-  let notasDirectasEliminadas = 0;
 
   try {
     const { assessmentId, subnotas, fecha, cursoId, asignaturaId } = req.body;
@@ -1305,23 +1265,6 @@ exports.guardarNotasAcumuladas = async (req, res) => {
     }
 
     await transaction.begin();
-
-    // Opcional: Limpiar subnotas antiguas sin AssessmentFormId
-    try {
-      const cleanupResult = await new sql.Request(transaction)
-        .query(`
-          DELETE FROM AssessmentSubtest
-          WHERE Identifier IN ('SUB1', 'SUB2') 
-          AND AssessmentFormId IS NULL
-          AND NOT EXISTS (
-            SELECT 1 FROM AssessmentResult 
-            WHERE AssessmentResult.AssessmentSubtestId = AssessmentSubtest.AssessmentSubtestId
-          )
-        `);
-      console.log(`[GUARDAR_ACUMULATIVA] Limpieza de subnotas antiguas sin uso completada. Registros eliminados: ${cleanupResult.rowsAffected[0]}`);
-    } catch (cleanupError) {
-      console.log('[GUARDAR_ACUMULATIVA] No se pudieron limpiar subnotas antiguas:', cleanupError.message);
-    }
 
     // Obtener el identificador de la evaluación principal (N1, N2, etc.)
     const assessmentQuery = await new sql.Request(transaction)
@@ -1751,24 +1694,6 @@ exports.guardarNotasAcumuladas = async (req, res) => {
         }
       }
 
-      // NUEVO: Eliminar registros de notas directas (IsAverage = 0, AssessmentSubtestId = NULL)
-      const deleteDirectResult = await new sql.Request(transaction)
-        .input('registrationId', sql.Int, registrationId)
-        .input('assessmentId', sql.Int, assessmentId)
-        .query(`
-          DELETE ar FROM AssessmentResult ar
-          INNER JOIN AssessmentRegistration reg ON ar.AssessmentRegistrationId = reg.AssessmentRegistrationId
-          INNER JOIN AssessmentAdministration aa ON reg.AssessmentAdministrationId = aa.AssessmentAdministrationId
-          INNER JOIN Assessment_AssessmentAdministration aaa ON aa.AssessmentAdministrationId = aaa.AssessmentAdministrationId
-          WHERE ar.AssessmentRegistrationId = @registrationId
-            AND aaa.AssessmentId = @assessmentId
-            AND ar.IsAverage = 0
-            AND ar.AssessmentSubtestId IS NULL;
-        `);
-      
-      notasDirectasEliminadas += deleteDirectResult.rowsAffected[0];
-      console.log(`[GUARDAR_ACUMULATIVA] Notas directas eliminadas para registrationId ${registrationId}: ${deleteDirectResult.rowsAffected[0]}`);
-
       // Eliminar notas y grupos previos de este alumno para este assessment
       await new sql.Request(transaction)
         .input('assessmentRegistrationId', sql.Int, registrationId)
@@ -1910,7 +1835,7 @@ exports.guardarNotasAcumuladas = async (req, res) => {
 
     // Si llegamos aquí sin errores no capturados, la transacción puede ser commiteada
     await transaction.commit();
-    console.log(`[GUARDAR_ACUMULATIVA] Proceso finalizado exitosamente. Estadísticas: Notas insertadas: ${notasInsertadas}, Promedios insertados: ${promediosInsertados}, Registros omitidos: ${registrosOmitidos}, Registros creados: ${registrosCreados}, Grupos creados: ${gruposCreados}, Notas directas eliminadas: ${notasDirectasEliminadas}`);
+    console.log(`[GUARDAR_ACUMULATIVA] Proceso finalizado exitosamente. Estadísticas: Notas insertadas: ${notasInsertadas}, Promedios insertados: ${promediosInsertados}, Registros omitidos: ${registrosOmitidos}, Registros creados: ${registrosCreados}, Grupos creados: ${gruposCreados}`);
     
     return res.status(200).json({
       success: true,
@@ -1920,12 +1845,9 @@ exports.guardarNotasAcumuladas = async (req, res) => {
         promediosInsertados,
         registrosOmitidos,
         registrosCreados,
-        gruposCreados,
-        notasDirectasEliminadas
+        gruposCreados
       }
     });
-
-  
 
   } catch (error) {
     // Si hay un error en cualquier punto, hacemos rollback de la transacción
@@ -1946,19 +1868,6 @@ exports.guardarNotasAcumuladas = async (req, res) => {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 // POST /api/notas/get-notas-acumuladas
 exports.getNotasAcumuladas = async (req, res) => {
   try {
@@ -1973,81 +1882,49 @@ exports.getNotasAcumuladas = async (req, res) => {
 
     console.log(`[GET_NOTAS_ACUMULADAS] cursoId=${cursoId}, asignaturaId=${asignaturaId}, columnas=${assessmentIds.join(',')}`);
 
-    // Consulta mejorada para incluir información de subnotas y AssessmentForm
     const query = `
       WITH Estudiantes AS (
         SELECT DISTINCT
           p.PersonId,
           p.FirstName,
           p.LastName,
-          p.SecondLastName,
-          opr.OrganizationPersonRoleId
-        FROM OrganizationPersonRole opr
-        INNER JOIN Person p ON p.PersonId = opr.PersonId
-        WHERE opr.OrganizationId = @cursoId
-          AND opr.RoleId = 6
+          p.SecondLastName
+        FROM OrganizationPersonRole r
+        INNER JOIN Person p ON p.PersonId = r.PersonId
+        WHERE r.OrganizationId = @cursoId
+          AND r.RoleId = 6
       ),
       Registros AS (
         SELECT
           ar.AssessmentRegistrationId,
           ar.PersonId,
-          ar.CourseSectionOrganizationId,
-          aa.AssessmentAdministrationId,
-          aaa.AssessmentId
+          ar.CourseSectionOrganizationId
         FROM AssessmentRegistration ar
-        INNER JOIN AssessmentAdministration aa ON ar.AssessmentAdministrationId = aa.AssessmentAdministrationId
-        INNER JOIN Assessment_AssessmentAdministration aaa ON aa.AssessmentAdministrationId = aaa.AssessmentAdministrationId
         WHERE ar.CourseSectionOrganizationId = @asignaturaId
-          AND aaa.AssessmentId IN (${assessmentIds.join(',')})
       ),
-      SubtestInfo AS (
-        SELECT 
-          ast.AssessmentSubtestId,
-          ast.Identifier,
-          ast.Title,
-          ast.WeightPercent,
-          af.AssessmentId
-        FROM AssessmentSubtest ast
-        INNER JOIN AssessmentForm af ON ast.AssessmentFormId = af.AssessmentFormId
-        WHERE af.AssessmentId IN (${assessmentIds.join(',')})
-      ),
-      ResultadosDetallados AS (
+      Resultados AS (
         SELECT
-          reg.PersonId,
-          reg.AssessmentRegistrationId,
-          arg.AssessmentId,
-          ar.AssessmentResultId,
-          ar.ScoreValue,
-          ar.IsAverage,
-          ar.AssessmentSubtestId,
-          arg.AssessmentResultGroupId,
-          ISNULL(si.Identifier, 'PROMEDIO') AS Identifier,
-          ISNULL(si.Title, 'Promedio') AS Title,
-          ISNULL(si.WeightPercent, 100) AS WeightPercent
-        FROM AssessmentResultGroup arg
-        INNER JOIN AssessmentResult ar ON arg.AssessmentResultGroupId = ar.AssessmentResultGroupId
-        INNER JOIN Registros reg ON arg.AssessmentRegistrationId = reg.AssessmentRegistrationId
-        LEFT JOIN SubtestInfo si ON ar.AssessmentSubtestId = si.AssessmentSubtestId
-        WHERE arg.AssessmentId IN (${assessmentIds.join(',')})
+          ar.PersonId,
+          ar.AssessmentRegistrationId,
+          r.AssessmentId,
+          r.ScoreValue,
+          r.IsAverage
+        FROM AssessmentResult r
+        INNER JOIN AssessmentRegistration ar ON ar.AssessmentRegistrationId = r.AssessmentRegistrationId
+        WHERE r.AssessmentId IN (${assessmentIds.join(',')})
       )
       SELECT 
         e.PersonId,
-        e.OrganizationPersonRoleId,
         e.FirstName,
         e.LastName,
         e.SecondLastName,
-        rd.AssessmentId,
-        rd.AssessmentRegistrationId,
-        rd.ScoreValue,
-        rd.IsAverage,
-        rd.AssessmentSubtestId,
-        rd.Identifier,
-        rd.Title,
-        rd.WeightPercent,
-        rd.AssessmentResultGroupId
+        r.AssessmentId,
+        r.ScoreValue,
+        r.IsAverage
       FROM Estudiantes e
-      LEFT JOIN ResultadosDetallados rd ON rd.PersonId = e.PersonId
-      ORDER BY e.LastName, e.FirstName, rd.AssessmentId, rd.Identifier
+      INNER JOIN Registros ar ON ar.PersonId = e.PersonId
+      LEFT JOIN Resultados r ON r.PersonId = e.PersonId AND r.AssessmentRegistrationId = ar.AssessmentRegistrationId
+      ORDER BY e.LastName, e.FirstName, r.AssessmentId, r.IsAverage
     `;
 
     const result = await request
@@ -2056,91 +1933,12 @@ exports.getNotasAcumuladas = async (req, res) => {
       .query(query);
 
     console.log(`[GET_NOTAS_ACUMULADAS] Resultados obtenidos: ${result.recordset.length}`);
-    
-    // Transformar los datos para que sean más fáciles de usar en el frontend
-    const estudiantes = {};
-    const assessmentInfo = {};
-    
-    // Agrupar por estudiante
-    result.recordset.forEach(record => {
-      const personId = record.PersonId;
-      
-      if (!estudiantes[personId]) {
-        estudiantes[personId] = {
-          personId: record.PersonId,
-          organizationPersonRoleId: record.OrganizationPersonRoleId,
-          firstName: record.FirstName,
-          lastName: record.LastName,
-          secondLastName: record.SecondLastName,
-          notas: {}
-        };
-      }
-      
-      // Solo procesar si hay un AssessmentId (podría ser null para estudiantes sin notas)
-      if (record.AssessmentId) {
-        const assessmentId = record.AssessmentId;
-        
-        // Guardar información del assessment si no existe
-        if (!assessmentInfo[assessmentId]) {
-          assessmentInfo[assessmentId] = {
-            assessmentId: assessmentId,
-            subnotas: {}
-          };
-        }
-        
-        // Inicializar estructura para este assessment si no existe
-        if (!estudiantes[personId].notas[assessmentId]) {
-          estudiantes[personId].notas[assessmentId] = {
-            assessmentId: assessmentId,
-            assessmentRegistrationId: record.AssessmentRegistrationId,
-            promedio: null,
-            subnotas: {}
-          };
-        }
-        
-        // Si es un promedio
-        if (record.IsAverage === true) {
-          estudiantes[personId].notas[assessmentId].promedio = record.ScoreValue;
-        } 
-        // Si es una subnota
-        else if (record.AssessmentSubtestId) {
-          const identifier = record.Identifier;
-          
-          // Guardar información de la subnota
-          if (!assessmentInfo[assessmentId].subnotas[identifier]) {
-            assessmentInfo[assessmentId].subnotas[identifier] = {
-              identifier: identifier,
-              title: record.Title,
-              weight: record.WeightPercent
-            };
-          }
-          
-          // Guardar el valor de la subnota para este estudiante
-          estudiantes[personId].notas[assessmentId].subnotas[identifier] = {
-            identifier: identifier,
-            score: record.ScoreValue,
-            weight: record.WeightPercent
-          };
-        }
-      }
-    });
-    
-    // Convertir a arrays para el frontend
-    const estudiantesArray = Object.values(estudiantes);
-    const assessmentInfoArray = Object.values(assessmentInfo);
-    
-    res.status(200).json({
-      estudiantes: estudiantesArray,
-      assessmentInfo: assessmentInfoArray,
-      rawData: result.recordset // Incluir datos crudos por si son necesarios
-    });
+    res.status(200).json(result.recordset);
   } catch (error) {
     console.error('[GET_NOTAS_ACUMULADAS][ERROR]', error);
-    res.status(500).json({ success: false, message: 'Error al obtener notas acumulativas', error: error.message });
+    res.status(500).json({ success: false, message: 'Error al obtener notas acumulativas', error });
   }
 };
-
-
 
 
 //aqui2
