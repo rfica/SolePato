@@ -1827,7 +1827,6 @@ const Notas = () => {
   const [configColumna, setConfigColumna] = useState(null);
   const [mostrarModalCambios, setMostrarModalCambios] = useState(false);
   const [tipoPendiente, setTipoPendiente] = useState(null); // ETAPA1: tipo solicitado antes de confirmar
-  const [validandoEnter, setValidandoEnter] = useState(new Set()); // Para evitar doble validación
 
   useEffect(() => {
     console.log("[DEBUG PADRE] configColumna updated:", configColumna);
@@ -2708,25 +2707,13 @@ const Notas = () => {
 
   const handleEditChange = (idxEst, idxComp, valor) => {
     // Normalizar el valor para siempre usar punto como separador decimal
-    let valorNormalizado = valor.replace(',', '.');
-    
-    // Solo para columnas directas (tipo 1): transformar automáticamente valores como 45 a 4.5
-    const tipoCol = componentes[idxComp]?.tipoColumna || 1;
-    if (tipoCol === 1) {
-      // Detectar si es un número de 2 dígitos sin punto decimal (ej: 45, 67, 12)
-      if (/^\d{2}$/.test(valorNormalizado)) {
-        const num = parseInt(valorNormalizado);
-        // Solo transformar si el resultado estaría en rango válido (1.0 a 7.0)
-        if (num >= 10 && num <= 70) {
-          valorNormalizado = (num / 10).toString();
-        }
-      }
-    }
+    const valorNormalizado = valor.replace(',', '.');
     
     // Actualizar el valor en edicionCelda
     setEdicionCelda(prev => ({ ...prev, [`${idxEst}-${idxComp}`]: valorNormalizado }));
     
     // Actualizar la visualización en tiempo real para mejorar la experiencia del usuario
+    const tipoCol = componentes[idxComp]?.tipoColumna || 1;
     const tipoVis = visualizacionColumnas[componentes[idxComp]?.nombre] || 'Nota';
     
     // Solo para notas directas (tipo 1) actualizamos la visualización en tiempo real
@@ -2745,33 +2732,8 @@ const Notas = () => {
     }
   };
 
-  const [procesandoEnter, setProcesandoEnter] = useState(new Set());
-
-  const handleEditConfirm = (idxEst, idxComp, tipoCol, tipoVis, esDesdeEnter = false) => {
-    const clave = `${idxEst}-${idxComp}`;
-    
-    // Si es desde Enter, marcar que estamos procesando
-    if (esDesdeEnter) {
-      setProcesandoEnter(prev => new Set([...prev, clave]));
-      // Limpiar la bandera después de un breve delay
-      setTimeout(() => {
-        setProcesandoEnter(prev => {
-          const nuevo = new Set(prev);
-          nuevo.delete(clave);
-          return nuevo;
-        });
-      }, 100);
-    } else {
-      // Si es desde onBlur pero ya estamos procesando Enter, salir
-      if (procesandoEnter.has(clave)) {
-        console.log(`[DEBUG] Evitando doble ejecución para ${clave}`);
-        return;
-      }
-    }
-    
-    console.log(`[DEBUG] handleEditConfirm ejecutado: ${idxEst}-${idxComp}, tipoCol: ${tipoCol}, esDesdeEnter: ${esDesdeEnter}`);
+  const handleEditConfirm = (idxEst, idxComp, tipoCol, tipoVis) => {
     const valorEditado = edicionCelda[`${idxEst}-${idxComp}`];
-    console.log(`[DEBUG] Valor editado: "${valorEditado}"`);
 
     setEdicionCelda(prev => {
       const nuevo = { ...prev };
@@ -2780,16 +2742,12 @@ const Notas = () => {
     });
 
     // Si no hay nada en la celda de edición, no hacer nada.
-    if (valorEditado === undefined) {
-      console.log(`[DEBUG] valorEditado es undefined, saliendo`);
-      return;
-    }
+    if (valorEditado === undefined) return;
 
     let valorNumerico = null;
 
     if (valorEditado !== null && valorEditado !== '') {
       const valorNormalizado = valorEditado.toString().replace(',', '.');
-      console.log(`[DEBUG] Valor normalizado: "${valorNormalizado}"`);
 
       if (tipoVis === 'Porcentaje') {
         valorNumerico = porcentajeANota(valorNormalizado, 7.0);
@@ -2798,18 +2756,13 @@ const Notas = () => {
       } else {
         valorNumerico = parseFloat(valorNormalizado);
       }
-      console.log(`[DEBUG] Valor numérico calculado: ${valorNumerico}`);
     }
 
-    const esInvalido = valorNumerico !== null && (isNaN(valorNumerico) || valorNumerico < 1.0 || valorNumerico > 7.0);
-    console.log(`[DEBUG] Es inválido: ${esInvalido} (valorNumerico: ${valorNumerico})`);
-
-    if (esInvalido) {
-      console.log(`[DEBUG] Mostrando mensaje de error para valor: ${valorEditado}`);
+    if (valorNumerico !== null && (isNaN(valorNumerico) || valorNumerico < 1.0 || valorNumerico > 7.0)) {
       Swal.fire({
         icon: 'error',
         title: 'Valor no válido',
-        text: `Estás ingresando nota: ${valorEditado} y debería ser entre 1.0 y 7.0`,
+        text: 'La nota debe ser un número entre 1.0 y 7.0, o un concepto/porcentaje válido.',
       });
       // No se actualiza el estado, por lo que la celda vuelve a su valor anterior.
       return;
@@ -3460,19 +3413,9 @@ const confirmarCambioTipo = async (nuevoValor) => {
                           onClick={() => esAcumulativa && handleAbrirModalColumna(c.nombre)}
                           onFocus={e => !esAcumulativa && !esVinculada && handleEditStart(idxEst, idxComp, notas[idxEst]?.[idxComp]?.visible || '')}
                           onChange={e => !esAcumulativa && !esVinculada && handleEditChange(idxEst, idxComp, e.target.value)}
-                          onBlur={(e) => {
-                            // Solo para mouse/tab, no para Enter
-                            if (c.tipoColumna === 1 && e.relatedTarget !== null) {
-                              handleEditConfirm(idxEst, idxComp, c.tipoColumna, visualizacionColumnas[c.nombre] || 'Nota');
-                            }
-                          }}
+                          onBlur={() => !esAcumulativa && !esVinculada && handleEditConfirm(idxEst, idxComp, c.tipoColumna, visualizacionColumnas[c.nombre] || 'Nota')}
                           onKeyDown={e => {
                             if (e.key === 'Enter') {
-                              e.preventDefault();
-                              // Solo validar si es columna directa (tipo 1)
-                              if (c.tipoColumna === 1) {
-                                handleEditConfirm(idxEst, idxComp, c.tipoColumna, visualizacionColumnas[c.nombre] || 'Nota');
-                              }
                               e.target.blur();
                             }
                           }}

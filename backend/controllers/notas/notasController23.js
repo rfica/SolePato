@@ -193,7 +193,6 @@ exports.getEstudiantesPorCurso = async (req, res) => {
         JOIN Person p ON opr.PersonId = p.PersonId
         WHERE opr.OrganizationId = @cursoId
           AND opr.RoleId = 6 -- estudiante
-        ORDER BY p.LastName, p.FirstName
       `);
     res.json(result.recordset);
   } catch (error) {
@@ -2137,17 +2136,8 @@ exports.getNotasAcumuladas = async (req, res) => {
       }
     });
     
-    // Convertir a arrays para el frontend y ordenar estudiantes
-    const estudiantesArray = Object.values(estudiantes).sort((a, b) => {
-      const lastNameA = (a.lastName || '').toLowerCase();
-      const lastNameB = (b.lastName || '').toLowerCase();
-      if (lastNameA !== lastNameB) {
-        return lastNameA.localeCompare(lastNameB);
-      }
-      const firstNameA = (a.firstName || '').toLowerCase();
-      const firstNameB = (b.firstName || '').toLowerCase();
-      return firstNameA.localeCompare(firstNameB);
-    });
+    // Convertir a arrays para el frontend
+    const estudiantesArray = Object.values(estudiantes);
     const assessmentInfoArray = Object.values(assessmentInfo);
     
     res.status(200).json({
