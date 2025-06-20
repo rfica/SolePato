@@ -147,85 +147,16 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
     // Si es acumulativa, cargar subnotas
     if (configuracion.RefAssessmentSubtestTypeId === 2) {
       try {
-        console.log("[DEBUG] Es Acumulativa. Cargando datos existentes con getNotasAcumuladas...");
-        const resp = await axios.post('http://localhost:5000/api/notas/notas-acumuladas/leer', {
+        const respSubnotas = await axios.post('http://localhost:5000/api/notas/notas-acumuladas/cargar-existentes', {
+          assessmentId,
           cursoId,
-          asignaturaId,
-          assessmentIds: [assessmentId]
+          asignaturaId
         });
-        
-        const apiData = resp.data;
-        console.log("[DEBUG] Datos existentes cargados desde API (getNotasAcumuladas):", apiData);
-
-        if (apiData && apiData.estudiantes && apiData.assessmentInfo) {
-          // Obtener información de subnotas del primer (y único) assessment
-          const assessmentInfo = apiData.assessmentInfo[0];
-          const subnotasInfo = Object.values(assessmentInfo?.subnotas || {});
-          const pesos = subnotasInfo.map(s => s.weight || 0);
-
-          console.log("[DEBUG] Información de subnotas:", subnotasInfo);
-          console.log("[DEBUG] Pesos extraídos:", pesos);
-
-          const nuevasSubnotas = apiData.estudiantes.map(estudiante => {
-              const notasDelAssessment = estudiante.notas[assessmentId];
-              
-              let notasEstudiante = [];
-              if (notasDelAssessment && notasDelAssessment.subnotas) {
-                  // Mapear las subnotas en el orden correcto
-                  notasEstudiante = subnotasInfo.map(info => {
-                      const subnota = notasDelAssessment.subnotas[info.identifier];
-                      const valorNota = subnota ? subnota.score : null;
-                      return valorNota !== null ? String(valorNota).replace(',', '.') : null;
-                  });
-              } else {
-                  // Si no hay subnotas, crear array vacío del tamaño correcto
-                  notasEstudiante = new Array(subnotasInfo.length).fill(null);
-              }
-
-              // Calcular promedio (usar el que viene de la API si existe)
-              let promedio = notasDelAssessment?.promedio || 0;
-              
-              // Si no hay promedio en la API, calcularlo manualmente
-              if (!promedio) {
-                  const notasValidas = notasEstudiante.filter(n => n !== null && !isNaN(parseFloat(n)));
-                  if (notasValidas.length > 0 && pesos.length > 0) {
-                      let sumaPonderada = 0;
-                      let sumaPesos = 0;
-                      notasEstudiante.forEach((nota, index) => {
-                          const valorNota = parseFloat(nota);
-                          if (!isNaN(valorNota)) {
-                              const peso = pesos[index] || 0;
-                              sumaPonderada += valorNota * peso;
-                              sumaPesos += peso;
-                          }
-                      });
-                      if (sumaPesos > 0) {
-                          promedio = sumaPonderada / sumaPesos;
-                      }
-                  }
-              }
-
-              return {
-                  nombre: `${estudiante.firstName || ''} ${estudiante.lastName || ''}`.trim(),
-                  notas: notasEstudiante,
-                  pesos: pesos,
-                  promedio: promedio,
-                  organizationPersonRoleId: estudiante.organizationPersonRoleId,
-                  personId: estudiante.personId
-              };
-          });
-          
-          console.log("[DEBUG] Subnotas transformadas para el estado:", nuevasSubnotas);
-          setSubnotas(nuevasSubnotas);
-        } else {
-            console.warn("[WARN] La respuesta de la API de notas existentes no tiene el formato esperado.");
-            setSubnotas([]);
-        }
-
+        console.log("[DEBUG] Subnotas cargadas:", respSubnotas.data);
+        setSubnotas(respSubnotas.data);
       } catch (subnotasError) {
-        console.error('[ERROR] Error al cargar o procesar las subnotas:', subnotasError);
-        Swal.fire('Error', 'No se pudieron cargar los datos de la nota acumulativa.', 'error');
-        setSubnotas([]);
+        console.error('[ERROR] Error al crear subnotas:', subnotasError);
+        // Continuar aunque haya error
       }
     }
   } catch (error) {
@@ -1653,25 +1584,6 @@ const confirmarCambioTipo = async (nuevoValor) => {
 					const redondeado = valor !== null ? parseFloat(valor.toFixed(1)) : null;
 					const nuevas = [...subnotas];
 					nuevas[i].notas[j] = redondeado;
-					
-					// Recalcular promedio automáticamente
-					const notasValidas = nuevas[i].notas.filter(n => n !== null && !isNaN(parseFloat(n)));
-					if (notasValidas.length > 0 && nuevas[i].pesos.length > 0) {
-						let sumaPonderada = 0;
-						let sumaPesos = 0;
-						nuevas[i].notas.forEach((nota, index) => {
-							const valorNota = parseFloat(nota);
-							if (!isNaN(valorNota)) {
-								const peso = nuevas[i].pesos[index] || 0;
-								sumaPonderada += valorNota * peso;
-								sumaPesos += peso;
-							}
-						});
-						if (sumaPesos > 0) {
-							nuevas[i].promedio = parseFloat((sumaPonderada / sumaPesos).toFixed(1));
-						}
-					}
-					
 					setSubnotas(nuevas);
 				  }}
 				/>
@@ -1684,8 +1596,8 @@ const confirmarCambioTipo = async (nuevoValor) => {
 					
                   </td>
                 ))}
-                <td style={{ color: parseFloat(alumno.promedio || 0) < 4 ? 'red' : 'blue' }}>
-				  {(typeof alumno.promedio === 'number' ? alumno.promedio : parseFloat(alumno.promedio || 0)).toFixed(1)}
+                <td style={{ color: alumno.promedio < 4 ? 'red' : 'blue' }}>
+				  {alumno.promedio?.toFixed(1) || '0.0'}
 				</td>
 
               </tr>
@@ -3264,46 +3176,28 @@ const confirmarCambioTipo = async (nuevoValor) => {
               {estudiantes.map((est, idxEst) => (
                 <tr key={est.OrganizationPersonRoleId}>
                   <td>{est.FirstName} {est.LastName}</td>
-                  {componentes.map((c, idxComp) => {
-                    const esAcumulativa = c.tipoColumna === 2;
-                    const esVinculada = c.tipoColumna === 3;
-                    
-                    const inputStyles = {
-                      ...(esAcumulativa && { 
-                        cursor: 'pointer', 
-                        backgroundColor: '#f0f8ff'
-                      }),
-                      ...(esVinculada && {
-                        cursor: 'not-allowed',
-                        backgroundColor: '#e9ecef'
-                      })
-                    };
-
-                    return (
-                      <td key={idxComp}>
-                        <input
-                          type="text"
-                          style={inputStyles}
-                          value={
-                            edicionCelda[`${idxEst}-${idxComp}`] !== undefined
-                              ? edicionCelda[`${idxEst}-${idxComp}`]
-                              : notas[idxEst]?.[idxComp]?.visible || ''
+                  {componentes.map((c, idxComp) => (
+                    <td key={idxComp}>
+                      <input
+                        type="text"
+                        value={
+                          edicionCelda[`${idxEst}-${idxComp}`] !== undefined
+                            ? edicionCelda[`${idxEst}-${idxComp}`]
+                            : notas[idxEst]?.[idxComp]?.visible || ''
+                        }
+                        onFocus={e => handleEditStart(idxEst, idxComp, notas[idxEst]?.[idxComp]?.visible || '')}
+                        onChange={e => handleEditChange(idxEst, idxComp, e.target.value)}
+                        onBlur={() => handleEditConfirm(idxEst, idxComp, c.tipoColumna, visualizacionColumnas[c.nombre] || 'Nota')}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.target.blur();
                           }
-                          onClick={() => esAcumulativa && handleAbrirModalColumna(c.nombre)}
-                          onFocus={e => !esAcumulativa && !esVinculada && handleEditStart(idxEst, idxComp, notas[idxEst]?.[idxComp]?.visible || '')}
-                          onChange={e => !esAcumulativa && !esVinculada && handleEditChange(idxEst, idxComp, e.target.value)}
-                          onBlur={() => !esAcumulativa && !esVinculada && handleEditConfirm(idxEst, idxComp, c.tipoColumna, visualizacionColumnas[c.nombre] || 'Nota')}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter') {
-                              e.target.blur();
-                            }
-                          }}
-                          className="input-nota"
-                          readOnly={esAcumulativa || esVinculada}
-                        />
-                      </td>
-                    );
-                  })}
+                        }}
+                        className="input-nota"
+                        disabled={c.tipoColumna === 3}
+                      />
+                    </td>
+                  ))}
                   <td><strong>{calcularFinal(notas[idxEst])}</strong></td>
                 </tr>
               ))}

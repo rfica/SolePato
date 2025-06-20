@@ -338,8 +338,7 @@ exports.getNotasGuardadasPorCursoAsignaturaPeriodo = async (req, res) => {
             ar.PersonId,
             ar.AssessmentAdministrationId,
             ar.CreationDate,
-            res.ScoreValue,
-            res.IsAverage -- Se agrega el campo IsAverage para identificar la nota promedio.
+            res.ScoreValue
           FROM AssessmentRegistration ar
           LEFT JOIN AssessmentResult res ON res.AssessmentRegistrationId = ar.AssessmentRegistrationId
           WHERE ar.CourseSectionOrganizationId = @asignaturaId
@@ -353,8 +352,7 @@ exports.getNotasGuardadasPorCursoAsignaturaPeriodo = async (req, res) => {
             cn.NombreColumna,
             cn.RefAssessmentSubtestTypeId,
             cn.VisualNoteType,
-            rn.ScoreValue,
-            rn.IsAverage, -- Se propaga el campo IsAverage.
+             rn.ScoreValue AS ScoreValue,
             rn.AssessmentRegistrationId,
             gp.Name AS Periodo,
             rn.CreationDate

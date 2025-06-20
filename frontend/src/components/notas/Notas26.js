@@ -147,85 +147,16 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
     // Si es acumulativa, cargar subnotas
     if (configuracion.RefAssessmentSubtestTypeId === 2) {
       try {
-        console.log("[DEBUG] Es Acumulativa. Cargando datos existentes con getNotasAcumuladas...");
-        const resp = await axios.post('http://localhost:5000/api/notas/notas-acumuladas/leer', {
+        const respSubnotas = await axios.post('http://localhost:5000/api/notas/notas-acumuladas/cargar-existentes', {
+          assessmentId,
           cursoId,
-          asignaturaId,
-          assessmentIds: [assessmentId]
+          asignaturaId
         });
-        
-        const apiData = resp.data;
-        console.log("[DEBUG] Datos existentes cargados desde API (getNotasAcumuladas):", apiData);
-
-        if (apiData && apiData.estudiantes && apiData.assessmentInfo) {
-          // Obtener información de subnotas del primer (y único) assessment
-          const assessmentInfo = apiData.assessmentInfo[0];
-          const subnotasInfo = Object.values(assessmentInfo?.subnotas || {});
-          const pesos = subnotasInfo.map(s => s.weight || 0);
-
-          console.log("[DEBUG] Información de subnotas:", subnotasInfo);
-          console.log("[DEBUG] Pesos extraídos:", pesos);
-
-          const nuevasSubnotas = apiData.estudiantes.map(estudiante => {
-              const notasDelAssessment = estudiante.notas[assessmentId];
-              
-              let notasEstudiante = [];
-              if (notasDelAssessment && notasDelAssessment.subnotas) {
-                  // Mapear las subnotas en el orden correcto
-                  notasEstudiante = subnotasInfo.map(info => {
-                      const subnota = notasDelAssessment.subnotas[info.identifier];
-                      const valorNota = subnota ? subnota.score : null;
-                      return valorNota !== null ? String(valorNota).replace(',', '.') : null;
-                  });
-              } else {
-                  // Si no hay subnotas, crear array vacío del tamaño correcto
-                  notasEstudiante = new Array(subnotasInfo.length).fill(null);
-              }
-
-              // Calcular promedio (usar el que viene de la API si existe)
-              let promedio = notasDelAssessment?.promedio || 0;
-              
-              // Si no hay promedio en la API, calcularlo manualmente
-              if (!promedio) {
-                  const notasValidas = notasEstudiante.filter(n => n !== null && !isNaN(parseFloat(n)));
-                  if (notasValidas.length > 0 && pesos.length > 0) {
-                      let sumaPonderada = 0;
-                      let sumaPesos = 0;
-                      notasEstudiante.forEach((nota, index) => {
-                          const valorNota = parseFloat(nota);
-                          if (!isNaN(valorNota)) {
-                              const peso = pesos[index] || 0;
-                              sumaPonderada += valorNota * peso;
-                              sumaPesos += peso;
-                          }
-                      });
-                      if (sumaPesos > 0) {
-                          promedio = sumaPonderada / sumaPesos;
-                      }
-                  }
-              }
-
-              return {
-                  nombre: `${estudiante.firstName || ''} ${estudiante.lastName || ''}`.trim(),
-                  notas: notasEstudiante,
-                  pesos: pesos,
-                  promedio: promedio,
-                  organizationPersonRoleId: estudiante.organizationPersonRoleId,
-                  personId: estudiante.personId
-              };
-          });
-          
-          console.log("[DEBUG] Subnotas transformadas para el estado:", nuevasSubnotas);
-          setSubnotas(nuevasSubnotas);
-        } else {
-            console.warn("[WARN] La respuesta de la API de notas existentes no tiene el formato esperado.");
-            setSubnotas([]);
-        }
-
+        console.log("[DEBUG] Subnotas cargadas:", respSubnotas.data);
+        setSubnotas(respSubnotas.data);
       } catch (subnotasError) {
-        console.error('[ERROR] Error al cargar o procesar las subnotas:', subnotasError);
-        Swal.fire('Error', 'No se pudieron cargar los datos de la nota acumulativa.', 'error');
-        setSubnotas([]);
+        console.error('[ERROR] Error al crear subnotas:', subnotasError);
+        // Continuar aunque haya error
       }
     }
   } catch (error) {
@@ -308,10 +239,10 @@ const ModalConfiguracionNota = ({ visible, tipo, columna, onClose, escalas, tipo
 		  }
 		  
 		  // Ajustar escala si es necesario (por ejemplo, si se ingresa 70 en lugar de 7.0)
-			if (valor >= 10) {
-			  valor = valor / 10;
+		  if (valor >= 10) {
+			valor = valor / 10;
 		  }
-
+		  
 		  // Redondear a un decimal y devolver como número
 		  return parseFloat(valor.toFixed(1));
 		};
@@ -1653,25 +1584,6 @@ const confirmarCambioTipo = async (nuevoValor) => {
 					const redondeado = valor !== null ? parseFloat(valor.toFixed(1)) : null;
 					const nuevas = [...subnotas];
 					nuevas[i].notas[j] = redondeado;
-					
-					// Recalcular promedio automáticamente
-					const notasValidas = nuevas[i].notas.filter(n => n !== null && !isNaN(parseFloat(n)));
-					if (notasValidas.length > 0 && nuevas[i].pesos.length > 0) {
-						let sumaPonderada = 0;
-						let sumaPesos = 0;
-						nuevas[i].notas.forEach((nota, index) => {
-							const valorNota = parseFloat(nota);
-							if (!isNaN(valorNota)) {
-								const peso = nuevas[i].pesos[index] || 0;
-								sumaPonderada += valorNota * peso;
-								sumaPesos += peso;
-							}
-						});
-						if (sumaPesos > 0) {
-							nuevas[i].promedio = parseFloat((sumaPonderada / sumaPesos).toFixed(1));
-						}
-					}
-					
 					setSubnotas(nuevas);
 				  }}
 				/>
@@ -1684,8 +1596,8 @@ const confirmarCambioTipo = async (nuevoValor) => {
 					
                   </td>
                 ))}
-                <td style={{ color: parseFloat(alumno.promedio || 0) < 4 ? 'red' : 'blue' }}>
-				  {(typeof alumno.promedio === 'number' ? alumno.promedio : parseFloat(alumno.promedio || 0)).toFixed(1)}
+                <td style={{ color: alumno.promedio < 4 ? 'red' : 'blue' }}>
+				  {alumno.promedio?.toFixed(1) || '0.0'}
 				</td>
 
               </tr>
@@ -1812,8 +1724,6 @@ const Notas = () => {
   const [edicionCelda, setEdicionCelda] = useState({});
   const [assessmentId, setAssessmentId] = useState(null);
   const [assessmentIdEspecifico, setAssessmentIdEspecifico] = useState(null);
-  const [todasLasNotasDB, setTodasLasNotasDB] = useState([]);
-
   const [notasGuardadas, setNotasGuardadas] = useState([]);
   const [configColumna, setConfigColumna] = useState(null);
   const [mostrarModalCambios, setMostrarModalCambios] = useState(false);
@@ -1925,40 +1835,38 @@ const Notas = () => {
     }
   };
   
-
+  
   const handleBuscar = async () => {
-    if (!anioSeleccionado || !colegioSeleccionado || !cursoSeleccionado || !asignaturaSeleccionada || !periodoSeleccionado) {
-      setErrorMessage('Debe seleccionar todos los filtros.');
-      return;
-    }
-    setErrorMessage('');
-    setSuccessMessage('');
-    try {
-      // 1. Obtener estudiantes
-      const resEst = await axios.get(`http://localhost:5000/api/notas/estudiantes/${cursoSeleccionado}`);
-      // Ordenar estudiantes por apellido paterno (primer apellido)
-      const estudiantesOrdenados = [...resEst.data].sort((a, b) => {
-        const apA = (a.LastName || '').split(' ')[0].toLowerCase();
-        const apB = (b.LastName || '').split(' ')[0].toLowerCase();
-        return apA.localeCompare(apB);
-      });
-      setEstudiantes(estudiantesOrdenados);
+  if (!anioSeleccionado || !colegioSeleccionado || !cursoSeleccionado || !asignaturaSeleccionada || !periodoSeleccionado) {
+    setErrorMessage('Debe seleccionar todos los filtros.');
+    return;
+  }
+  setErrorMessage('');
+  setSuccessMessage('');
+  try {
+    // 1. Obtener estudiantes
+    const resEst = await axios.get(`http://localhost:5000/api/notas/estudiantes/${cursoSeleccionado}`);
+    // Ordenar estudiantes por apellido paterno (primer apellido)
+    const estudiantesOrdenados = [...resEst.data].sort((a, b) => {
+      const apA = (a.LastName || '').split(' ')[0].toLowerCase();
+      const apB = (b.LastName || '').split(' ')[0].toLowerCase();
+      return apA.localeCompare(apB);
+    });
+    setEstudiantes(estudiantesOrdenados);
     
-      // 2. Consultar si existe hoja de notas
-      const resNotas = await axios.get(`http://localhost:5000/api/notas/leer`, {
-        params: {
-          cursoId: cursoSeleccionado,
-          asignaturaId: asignaturaSeleccionada,
-          periodoId: periodoSeleccionado
-        }
-      });
-    
-    setTodasLasNotasDB(resNotas.data);
+    // 2. Consultar si existe hoja de notas
+    const resNotas = await axios.get(`http://localhost:5000/api/notas/leer`, {
+      params: {
+        cursoId: cursoSeleccionado,
+        asignaturaId: asignaturaSeleccionada,
+        periodoId: periodoSeleccionado
+      }
+    });
     
     // Filtrar las notas para eliminar entradas sin valor real
     const notasGuardadas = resNotas.data.filter(nota => 
-      nota.ScoreValue !== null &&
-      nota.ScoreValue !== undefined &&
+      nota.ScoreValue !== null && 
+      nota.ScoreValue !== undefined && 
       nota.ScoreValue !== ''
     );
     
@@ -1983,290 +1891,361 @@ const Notas = () => {
     });
     console.log("[DEBUG] Notas agrupadas por estudiante:", notasPorEstudianteDB);
     
-      setNotasGuardadas(notasGuardadas); // Guardar en estado para usar en otras funciones
+    setNotasGuardadas(notasGuardadas); // Guardar en estado para usar en otras funciones
     
-      if (notasGuardadas && notasGuardadas.length > 0) {
-        // --- PROCESAMIENTO DINÁMICO DE COLUMNAS Y NOTAS ---
-        // 1. Obtener columnas únicas y ordenadas por N1, N2, ...
-        const columnasMap = {};
+    if (notasGuardadas && notasGuardadas.length > 0) {
+      // --- PROCESAMIENTO DINÁMICO DE COLUMNAS Y NOTAS ---
+      // 1. Obtener columnas únicas y ordenadas por N1, N2, ...
+      const columnasMap = {};
       resNotas.data.forEach(nota => {
-          if (!columnasMap[nota.Columna]) {
-            columnasMap[nota.Columna] = {
-              id: nota.AssessmentSubtestId,
-              nombre: nota.Columna,
-              nombreColumna: nota.NombreColumna
-            };
-          }
-        });
-        
-        // Asignar visualización por columna en base a VisualNoteType
-        const visualPorColumna = {};
+        if (!columnasMap[nota.Columna]) {
+          columnasMap[nota.Columna] = {
+            id: nota.AssessmentSubtestId,
+            nombre: nota.Columna,
+            nombreColumna: nota.NombreColumna
+          };
+        }
+      });
+      
+      // Asignar visualización por columna en base a VisualNoteType
+      const visualPorColumna = {};
       resNotas.data.forEach(nota => {
-          if (!visualPorColumna[nota.Columna]) {
+        if (!visualPorColumna[nota.Columna]) {
           // Usar el VisualNoteType de la nota si existe, o 'Nota' por defecto
           visualPorColumna[nota.Columna] = nota.VisualNoteType || 'Nota';
         }
       });
       
       console.log('[DEBUG] N1 VisualNoteType:', resNotas.data.find(n => n.Columna === 'N1')?.VisualNoteType);
-      console.log('[DEBUG] N2 VisualNoteType:', resNotas.data.find(n => n.Columna === 'N2')?.VisualNoteType);
-      console.log('[DEBUG] Todas las columnas:', columnasMap);
-        console.log('[DEBUG] Visualización por columna:', visualPorColumna);
-        
-        setVisualizacionColumnas(visualPorColumna);
-        Object.entries(visualPorColumna).forEach(([col, tipo]) => {
-          console.log(`[LISTBOX DEBUG] Columna ${col} se mostrará como: ${tipo}`);
-        });
-        
-        // Ordenar columnas por número (N1, N2, ...)
-        const columnas = Object.values(columnasMap).sort((a, b) => {
-          const nA = parseInt(a.nombre.replace('N', ''));
-          const nB = parseInt(b.nombre.replace('N', ''));
-          return nA - nB;
-        });
-        
-      const nuevosComponentes = columnas.map(col => {
-        const notaEjemplo = resNotas.data.find(n => n.Columna === col.nombre);
-          return {
-            nombre: col.nombre,
-            nombreColumna: col.nombreColumna,
-          tipoColumna: notaEjemplo ? notaEjemplo.RefAssessmentSubtestTypeId : 1,
-          id: col.id || `temp-${col.nombre}-${Date.now()}`
-          };
+      console.log("[DEBUG] Todas las columnas:", columnasMap);
+      
+      console.log('[DEBUG] Visualización por columna:', visualPorColumna);
+      
+      setVisualizacionColumnas(visualPorColumna);
+      Object.entries(visualPorColumna).forEach(([col, tipo]) => {
+        console.log(`[LISTBOX DEBUG] Columna ${col} se mostrará como: ${tipo}`);
       });
-      setComponentes(nuevosComponentes);
-
-        // 2. Construir matriz de notas por estudiante y columna
-        const notasPorEstudiante = estudiantesOrdenados.map(est => {
-          // Usar nuevosComponentes para tener la información más fresca sobre los tipos de columna.
-          return nuevosComponentes.map(comp => {
-            // Filtrar todas las notas que corresponden a un estudiante y una columna específicos.
-            const notasDelComponente = notasGuardadas.filter(
-              n => n.OrganizationPersonRoleId === est.OrganizationPersonRoleId &&
-                   n.Columna === comp.nombre
-            );
-
-            if (notasDelComponente.length === 0) {
-              return ''; // Si no hay notas, la celda queda vacía.
-            }
-
-            let notaAMostrar = null;
-
-            // Lógica para seleccionar la nota correcta:
-            // Si la columna es 'Acumulativa' (tipo 2), buscar la nota que es el promedio (IsAverage es true).
-            if (comp.tipoColumna === 2) {
-              notaAMostrar = notasDelComponente.find(n => n.IsAverage === true);
+      
+      // Ordenar columnas por número (N1, N2, ...)
+      const columnas = Object.values(columnasMap).sort((a, b) => {
+        const nA = parseInt(a.nombre.replace('N', ''));
+        const nB = parseInt(b.nombre.replace('N', ''));
+        return nA - nB;
+      });
+      
+      setComponentes(columnas.map(col => {
+        // Busca la primera nota de esa columna para obtener el tipo
+        const notaEjemplo = resNotas.data.find(n => n.Columna === col.nombre);
+        return {
+          nombre: col.nombre,
+          nombreColumna: col.nombreColumna,
+          tipoColumna: notaEjemplo ? notaEjemplo.RefAssessmentSubtestTypeId : 1, // default Directa
+          id: col.id || `temp-${col.nombre}-${Date.now()}` // Aseguramos que siempre haya un id
+        };
+      }));
+      
+      // 2. Construir matriz de notas por estudiante y columna
+      const notasPorEstudiante = estudiantesOrdenados.map(est => {
+        return columnas.map(col => {
+          // Buscar todas las notas para este estudiante y columna
+          const notasEstudiante = notasGuardadas.filter(
+            n => n.OrganizationPersonRoleId === est.OrganizationPersonRoleId && 
+                 n.Columna === col.nombre
+          );
+          
+          // Si hay notas, procesar el valor
+          if (notasEstudiante && notasEstudiante.length > 0) {
+            // Buscar primero notas con valores decimales
+            const notaDecimal = notasEstudiante.find(n => {
+              const valor = parseFloat(n.ScoreValue);
+              return !isNaN(valor) && valor % 1 !== 0;
+            });
+            
+            // Si hay nota con decimales, usarla
+            if (notaDecimal) {
+              // Procesar el valor para asegurar formato consistente
+              let valorFinal;
+              
+              if (typeof notaDecimal.ScoreValue === 'string') {
+                // Reemplazar coma por punto si es necesario
+                const valorStr = notaDecimal.ScoreValue.replace(',', '.');
+                // Convertir a número para preservar decimales
+                valorFinal = valorStr === '' ? null : parseFloat(valorStr);
+              } else {
+                // Si ya es un número, asegurarnos de preservar los decimales
+                valorFinal = parseFloat(notaDecimal.ScoreValue);
+              }
+              
+              console.log(`[DEBUG] Nota decimal para ${est.FirstName} ${est.LastName}, columna ${col.nombre}: ${notaDecimal.ScoreValue} -> ${valorFinal}`);
+              return valorFinal;
             }
             
-            // Si no se encontró una nota promedio (o si la columna no es acumulativa),
-            // se toma la primera nota disponible para esa celda.
-            if (!notaAMostrar) {
-              notaAMostrar = notasDelComponente[0];
+            // Si no hay nota con decimales, buscar cualquier nota válida
+            const notaValida = notasEstudiante.find(n => 
+              n.ScoreValue !== null && 
+              n.ScoreValue !== undefined && 
+              n.ScoreValue !== ''
+            );
+            
+            if (notaValida) {
+              // Procesar el valor para asegurar formato consistente
+              let valorFinal;
+              
+              if (typeof notaValida.ScoreValue === 'string') {
+                // Reemplazar coma por punto si es necesario
+                const valorStr = notaValida.ScoreValue.replace(',', '.');
+                // Convertir a número para preservar decimales
+                valorFinal = valorStr === '' ? null : parseFloat(valorStr);
+              } else {
+                // Si ya es un número, asegurarnos de preservar los decimales
+                valorFinal = parseFloat(notaValida.ScoreValue);
+              }
+              
+              console.log(`[DEBUG] Nota procesada para ${est.FirstName} ${est.LastName}, columna ${col.nombre}: ${notaValida.ScoreValue} -> ${valorFinal}`);
+              return valorFinal;
             }
-
-            // Devolver el valor de la nota seleccionada para que sea procesado y mostrado.
-            return notaAMostrar ? notaAMostrar.ScoreValue : '';
-          });
+          }
+          
+          // Si no hay notas o todas son nulas, devolver cadena vacía
+          return '';
         });
-        
-        // Se inicializan las notas para la visualización usando los componentes correctos.
-        const notasTransformadas = inicializarNotas(notasPorEstudiante, nuevosComponentes, visualizacionColumnas, escalaConceptual);
+      });
       
+      // IMPORTANTE: Transformar las notas para mostrar correctamente los decimales
+      const notasTransformadas = inicializarNotas(notasPorEstudiante, componentes, visualPorColumna, escalaConceptual);
       setNotas(notasTransformadas);
-        setTipoNota('ACUMULATIVA');
-        setAssessmentId(notasGuardadas[0]?.AssessmentId || null);
-      } else {
-        // Si no existen notas, preguntar si desea crear hoja
-        const confirm = await Swal.fire({
-          icon: 'info',
-          title: '¡Atención!',
-          html: 'No existe una hoja de notas para el curso indicado. ¿Desea crearla ahora?',
-          showCancelButton: true,
-          confirmButtonText: '¡Sí, crear hoja!',
-          cancelButtonText: 'Cancelar',
-          allowOutsideClick: false
-        });
+      setTipoNota('ACUMULATIVA');
+      setAssessmentId(notasGuardadas[0]?.AssessmentId || null);
+    } else {
+      // Si no existen notas, preguntar si desea crear hoja
+      const confirm = await Swal.fire({
+        icon: 'info',
+        title: '¡Atención!',
+        html: 'No existe una hoja de notas para el curso indicado. ¿Desea crearla ahora?',
+        showCancelButton: true,
+        confirmButtonText: '¡Sí, crear hoja!',
+        cancelButtonText: 'Cancelar',
+        allowOutsideClick: false
+      });
       
       // El resto del código se mantiene igual...
-        if (confirm.isConfirmed) {
-          // Mostrar loading
-          Swal.fire({
-            title: 'Cargando hoja de notas...',
-            allowOutsideClick: false,
-            didOpen: () => {
-              Swal.showLoading();
-            }
+      if (confirm.isConfirmed) {
+        // Mostrar loading
+        Swal.fire({
+          title: 'Cargando hoja de notas...',
+          allowOutsideClick: false,
+          didOpen: () => {
+            Swal.showLoading();
+          }
+        });
+        try {
+          // Preparar payload para crear hoja
+          const usuario = RoleService.getUsuario();
+          const assignedByPersonId = usuario?.personId || usuario?.PersonId;
+          const payload = {
+            cursoId: parseInt(cursoSeleccionado),
+            asignaturaId: parseInt(asignaturaSeleccionada),
+            periodoId: parseInt(periodoSeleccionado),
+            assignedByPersonId,
+            estudiantes: estudiantesOrdenados.map(e => ({ PersonId: e.PersonId })),
+            fechaEvaluacion: dayjs().format('DD-MM-YYYY')
+          };
+          
+          // Crear la hoja de notas
+          const resultadoCreacion = await axios.post('http://localhost:5000/api/notas/crear-hoja', payload);
+          console.log("[DEBUG] Resultado de crear hoja:", resultadoCreacion.data);
+          
+          // IMPORTANTE: Guardar los assessmentIds devueltos por el backend
+          let assessmentIdsCreados = null;
+          if (resultadoCreacion.data && Array.isArray(resultadoCreacion.data.assessmentIds)) {
+            assessmentIdsCreados = resultadoCreacion.data.assessmentIds;
+            setAssessmentId(assessmentIdsCreados[0]); // Guardar el primer assessmentId
+          } else if (resultadoCreacion.data && resultadoCreacion.data.assessmentId) {
+            // Si solo devuelve un assessmentId
+            setAssessmentId(resultadoCreacion.data.assessmentId);
+            assessmentIdsCreados = [resultadoCreacion.data.assessmentId];
+          }
+          
+          Swal.close();
+          await Swal.fire({
+            icon: 'success',
+            title: 'Hoja de notas creada',
+            text: 'Puede comenzar a ingresar las notas.'
           });
-          try {
-            // Preparar payload para crear hoja
-            const usuario = RoleService.getUsuario();
-            const assignedByPersonId = usuario?.personId || usuario?.PersonId;
-            const payload = {
-              cursoId: parseInt(cursoSeleccionado),
-              asignaturaId: parseInt(asignaturaSeleccionada),
-              periodoId: parseInt(periodoSeleccionado),
-              assignedByPersonId,
-              estudiantes: estudiantesOrdenados.map(e => ({ PersonId: e.PersonId })),
-              fechaEvaluacion: dayjs().format('DD-MM-YYYY')
-            };
-            
-            // Crear la hoja de notas
-            const resultadoCreacion = await axios.post('http://localhost:5000/api/notas/crear-hoja', payload);
-            console.log("[DEBUG] Resultado de crear hoja:", resultadoCreacion.data);
-            
-            // IMPORTANTE: Guardar los assessmentIds devueltos por el backend
-            let assessmentIdsCreados = null;
-            if (resultadoCreacion.data && Array.isArray(resultadoCreacion.data.assessmentIds)) {
-              assessmentIdsCreados = resultadoCreacion.data.assessmentIds;
-              setAssessmentId(assessmentIdsCreados[0]); // Guardar el primer assessmentId
-            } else if (resultadoCreacion.data && resultadoCreacion.data.assessmentId) {
-              // Si solo devuelve un assessmentId
-              setAssessmentId(resultadoCreacion.data.assessmentId);
-              assessmentIdsCreados = [resultadoCreacion.data.assessmentId];
-            }
-            
-            Swal.close();
-            await Swal.fire({
-              icon: 'success',
-              title: 'Hoja de notas creada',
-              text: 'Puede comenzar a ingresar las notas.'
-            });
-            
-            // Mostrar tabla vacía con 10 columnas N1-N10
-            const componentesN = Array.from({length: 10}, (_, i) => ({
-              nombre: `N${i+1}`,
-              porcentaje: '',
-              tipoColumna: 1, // Directa por defecto
-              id: assessmentIdsCreados ? assessmentIdsCreados[i] : null // Asignar el assessmentId correspondiente
-            }));
-            setComponentes(componentesN);
-            setNotas(estudiantesOrdenados.map(() => Array(10).fill('')));
-            setTipoNota('ACUMULATIVA');
-            
-            // NUEVO: Cargar la configuración por defecto para los selectores
-            if (assessmentIdsCreados && assessmentIdsCreados.length > 0) {
-              try {
-                // Cargar la configuración del primer assessmentId (N1)
-                const configResponse = await axios.get(`http://localhost:5000/api/notas/configurar-columna/${assessmentIdsCreados[0]}`);
-                const configData = configResponse.data;
-                
-                console.log("[DEBUG] Configuración obtenida para N1:", configData);
-                
-                // Guardar la configuración en el estado para que esté disponible cuando se abra el modal
-                // Asegurarse de que los valores numéricos se conviertan a string
-                if (configData) {
-                  if (configData.RefAssessmentTypeId !== undefined && configData.RefAssessmentTypeId !== null) {
-                    configData.RefAssessmentTypeId = String(configData.RefAssessmentTypeId);
-                  }
-                  
-                  if (configData.RefScoreMetricTypeId !== undefined && configData.RefScoreMetricTypeId !== null) {
-                    configData.RefScoreMetricTypeId = String(configData.RefScoreMetricTypeId);
-                  }
+          
+          // Mostrar tabla vacía con 10 columnas N1-N10
+          const componentesN = Array.from({length: 10}, (_, i) => ({
+            nombre: `N${i+1}`,
+            porcentaje: '',
+            tipoColumna: 1, // Directa por defecto
+            id: assessmentIdsCreados ? assessmentIdsCreados[i] : null // Asignar el assessmentId correspondiente
+          }));
+          setComponentes(componentesN);
+          setNotas(estudiantesOrdenados.map(() => Array(10).fill('')));
+          setTipoNota('ACUMULATIVA');
+          
+          // NUEVO: Cargar la configuración por defecto para los selectores
+          if (assessmentIdsCreados && assessmentIdsCreados.length > 0) {
+            try {
+              // Cargar la configuración del primer assessmentId (N1)
+              const configResponse = await axios.get(`http://localhost:5000/api/notas/configurar-columna/${assessmentIdsCreados[0]}`);
+              const configData = configResponse.data;
+              
+              console.log("[DEBUG] Configuración obtenida para N1:", configData);
+              
+              // Guardar la configuración en el estado para que esté disponible cuando se abra el modal
+              // Asegurarse de que los valores numéricos se conviertan a string
+              if (configData) {
+                if (configData.RefAssessmentTypeId !== undefined && configData.RefAssessmentTypeId !== null) {
+                  configData.RefAssessmentTypeId = String(configData.RefAssessmentTypeId);
                 }
                 
-                // Guardar la configuración en el estado
-                setConfigColumna(configData);
-              } catch (configError) {
-                console.error("[ERROR] No se pudo cargar la configuración inicial:", configError);
+                if (configData.RefScoreMetricTypeId !== undefined && configData.RefScoreMetricTypeId !== null) {
+                  configData.RefScoreMetricTypeId = String(configData.RefScoreMetricTypeId);
+                }
               }
+              
+              // Guardar la configuración en el estado
+              setConfigColumna(configData);
+            } catch (configError) {
+              console.error("[ERROR] No se pudo cargar la configuración inicial:", configError);
             }
-            
-            // Cargar las notas recién creadas
-            const resNotasActualizadas = await axios.get(`http://localhost:5000/api/notas/leer`, {
-              params: {
-                cursoId: cursoSeleccionado,
-                asignaturaId: asignaturaSeleccionada,
-                periodoId: periodoSeleccionado
-              }
-            });
-            
-            if (resNotasActualizadas.data && resNotasActualizadas.data.length > 0) {
-              setNotasGuardadas(resNotasActualizadas.data);
-            }
-            
-          } catch (err) {
-            Swal.close();
-            Swal.fire({
-              icon: 'error',
-              title: 'Error al crear hoja de notas',
-              text: 'No fue posible registrar la hoja de notas. Intente nuevamente o contacte al administrador.'
-            });
           }
+          
+          // Cargar las notas recién creadas
+          const resNotasActualizadas = await axios.get(`http://localhost:5000/api/notas/leer`, {
+            params: {
+              cursoId: cursoSeleccionado,
+              asignaturaId: asignaturaSeleccionada,
+              periodoId: periodoSeleccionado
+            }
+          });
+          
+          if (resNotasActualizadas.data && resNotasActualizadas.data.length > 0) {
+            setNotasGuardadas(resNotasActualizadas.data);
+          }
+          
+        } catch (err) {
+          Swal.close();
+          Swal.fire({
+            icon: 'error',
+            title: 'Error al crear hoja de notas',
+            text: 'No fue posible registrar la hoja de notas. Intente nuevamente o contacte al administrador.'
+          });
         }
       }
-    } catch (err) {
-    console.error("[ERROR] en handleBuscar:", err);
-      setErrorMessage('Error al cargar estudiantes o notas.');
     }
-  };
+  } catch (err) {
+    console.error("[ERROR] en handleBuscar:", err);
+    setErrorMessage('Error al cargar estudiantes o notas.');
+  }
+};
   
   const parseNota = (valor) => {
-  // Si el valor es null, undefined, vacío o no es un número, se devuelve una cadena vacía.
+  // Si el valor es null, undefined o vacío, devolver cadena vacía
   if (valor === null || valor === undefined || valor === '') return '';
-
-  // Se convierte el valor a número, reemplazando la coma por un punto si es un string.
-  const num = typeof valor === 'string' ? parseFloat(valor.replace(',', '.')) : parseFloat(valor);
-
-  // Si no es un número válido o es cero, no se muestra nada.
-  if (isNaN(num) || num === 0) return '';
   
-  // Se formatea el número para que siempre tenga un decimal y use un punto como separador.
-  // toFixed(1) asegura la precisión de un decimal (ej: 6.5, 7.0, 2.0).
-  return num.toFixed(1);
+  // Si el valor es cero, devolver cadena vacía (no mostrar ceros)
+  if (valor === 0 || valor === '0' || valor === '0.0' || valor === '0,0') return '';
+  
+  // Convertir a número si es string
+  const num = typeof valor === 'string' ? parseFloat(valor.replace(',', '.')) : parseFloat(valor);
+  
+  // Si no es un número válido, devolver cadena vacía
+  if (isNaN(num)) return '';
+  
+  // IMPORTANTE: Preservar los decimales exactos sin redondear
+  // Para asegurar que se muestren los decimales correctamente con PUNTO (no coma)
+  if (num % 1 !== 0) {
+    // Si tiene decimales, usar toFixed(1) y asegurar que se use punto como separador decimal
+    return num.toFixed(1).replace(',', '.');
+  } else {
+    // Si es un número entero, agregar .0 con punto
+    return `${num}.0`;
+  }
 };
 
-  const transformarVisualizacion = (nota, tipo, escalaConceptual, escalaMax = 7.0) => {
-  // Si el valor es null, undefined, vacío o no es un número, devolver cadena vacía.
+ const transformarVisualizacion = (nota, tipo, escalaConceptual, escalaMax = 7.0) => {
+  console.log(`[DEBUG] transformarVisualizacion - entrada: ${nota}, tipo: ${tipo}`);
+  
+  // Si el valor es null, undefined, vacío o NaN, devolver cadena vacía
   if (nota === null || nota === undefined || nota === '' || isNaN(nota)) return '';
-
+  
+  // Si el valor es cero, devolver cadena vacía (no mostrar ceros)
+  if (nota === 0 || nota === '0' || nota === '0.0' || nota === '0,0') return '';
+  
+  // Según el tipo de visualización, aplicar transformación
   if (tipo === 'Porcentaje') {
-    // Para porcentaje, redondear y agregar el símbolo.
     return `${Math.round((nota / escalaMax) * 100)}%`;
   }
   
   if (tipo === 'Concepto') {
-    // Para concepto, buscar el código correspondiente.
     const concepto = escalaConceptual.find(c => nota >= c.MinValue && nota <= c.MaxValue);
     return concepto ? concepto.ConceptCode : '';
   }
   
-  // Para cualquier otro caso (incluyendo 'Nota' o tipos numéricos como 1 y 2),
-  // usar siempre parseNota para asegurar el formato correcto con punto decimal.
+  // Para tipo === "Nota"
+  // Usar la función parseNota para asegurar formato consistente con punto decimal
   return parseNota(nota);
 };
-
-  const inicializarNotas = (notasPorEstudiante, componentes, visualizacionColumnas, escalaConceptual) => {
-    return notasPorEstudiante.map(fila =>
-      fila.map((valor, idx) => {
-        const componente = componentes[idx];
-        if (!componente) {
-          return { real: null, visible: '' };
-        }
-
-        const tipoVis = visualizacionColumnas[componente.nombre] || 'Nota';
+ 
+ const inicializarNotas = (notasPorEstudiante, componentes, visualizacionColumnas, escalaConceptual) => {
+  return notasPorEstudiante.map(fila =>
+    fila.map((valor, idx) => {
+      const tipoCol = componentes[idx]?.tipoColumna || 1;
+      const tipoVis = visualizacionColumnas[componentes[idx]?.nombre] || 'Nota';
+      
+      // Para notas directas (tipo 1), convertir a objeto con real y visible
+      if (tipoCol === 1) {
+        // Normalizar el valor
         let valorNum = null;
-
-        // Se procesa el valor de la nota para obtener su equivalente numérico.
+        
+        // Solo procesar si hay un valor
         if (valor !== null && valor !== undefined && valor !== '') {
-          const valorStr = valor.toString().replace(',', '.');
-          const num = parseFloat(valorStr);
-          if (!isNaN(num)) {
-            valorNum = num;
+          // Asegurarnos de que sea un número
+          valorNum = typeof valor === 'string' ? 
+                     parseFloat(valor.replace(',', '.')) : 
+                     parseFloat(valor);
+          
+          // Si no es un número válido, establecer como null
+          if (isNaN(valorNum)) {
+            valorNum = null;
+          }
+          
+          console.log(`[DEBUG] inicializarNotas - valor original: ${valor}, valorNum: ${valorNum}, tipo: ${typeof valorNum}`);
+        }
+        
+        // Transformar el valor para mostrar
+        let valorVisible = '';
+        
+        // Solo mostrar si hay un valor numérico válido y no es cero
+        if (valorNum !== null && !isNaN(valorNum)) {
+          // Si es cero, no mostrar nada
+          if (valorNum === 0) {
+            valorVisible = '';
+          } else {
+            valorVisible = tipoVis === 'Nota' ? 
+              parseNota(valorNum) : 
+              transformarVisualizacion(valorNum, tipoVis, escalaConceptual);
           }
         }
         
-        // El valor 'real' se guarda como el número puro.
-        // El valor 'visible' se genera aplicando la transformación correcta.
-        // Esto asegura que al cargar, un 6.5 de la BD se transforme a "6.5" para la UI.
-        return {
-          real: valorNum,
-          visible: transformarVisualizacion(valorNum, tipoVis, escalaConceptual)
+        console.log(`[DEBUG] inicializarNotas - valorNum: ${valorNum}, valorVisible: ${valorVisible}`);
+        
+        return { 
+          real: valorNum, 
+          visible: valorVisible 
         };
-      })
-    );
-  };
+      } 
+      // Para otros tipos, dejar el valor como está
+      else {
+        return valor;
+      }
+    })
+  );
+};
  
-
+  
   useEffect(() => {
     // Cuando se actualizan los componentes (columnas), asegurarse de que visualizacionColumnas tenga valores para las directas
     setVisualizacionColumnas(prev => {
@@ -2315,10 +2294,10 @@ const Notas = () => {
         return;
       }
 
-      // Buscar el AssessmentId correcto desde TODAS las notas, no solo las que tienen valor
+      // Buscar el AssessmentId correcto desde notasGuardadas  
       let assessmentIdParaEnviar = null;
-      if (todasLasNotasDB && todasLasNotasDB.length > 0) {
-        const notaColumna = todasLasNotasDB.find(nota => nota.Columna === colNombre);
+      if (notasGuardadas && notasGuardadas.length > 0) {
+        const notaColumna = notasGuardadas.find(nota => nota.Columna === colNombre);
         if (notaColumna) {
           assessmentIdParaEnviar = notaColumna.AssessmentId;
         }
@@ -2342,28 +2321,8 @@ const Notas = () => {
         usuarioId
       });
 
-      // Se actualiza el estado de visualización para la columna específica.
+      // Actualizar el estado local solo si todo fue exitoso
       setVisualizacionColumnas(prev => ({ ...prev, [colNombre]: nuevoTipo }));
-
-      // PASO CLAVE: Se recalcula la visualización de las notas para la columna afectada.
-      // Esto asegura que la transformación (a Concepto, Porcentaje, etc.) se aplique al instante.
-      setNotas(prevNotas => {
-        const idxComp = componentes.findIndex(c => c.nombre === colNombre);
-        if (idxComp === -1) return prevNotas;
-
-        return prevNotas.map(fila => {
-          const nuevaFila = [...fila];
-          const celda = nuevaFila[idxComp];
-          
-          if (celda && celda.real !== null) {
-            nuevaFila[idxComp] = {
-              ...celda,
-              visible: transformarVisualizacion(celda.real, nuevoTipo, escalaConceptual)
-            };
-          }
-          return nuevaFila;
-        });
-      });
 
       Swal.fire({
         icon: 'success',
@@ -2404,13 +2363,13 @@ const Notas = () => {
                   
                   // Si es un valor válido, aplicar la transformación según el tipo de visualización
                   if (!isNaN(real)) {
-                if (tipoVis === 'Nota') {
-                  visible = transformarVisualizacion(real, 'Nota', escalaConceptual);
-                } else if (tipoVis === 'Porcentaje') {
-                  visible = transformarVisualizacion(real, 'Porcentaje', escalaConceptual);
-                } else if (tipoVis === 'Concepto') {
-                  visible = transformarVisualizacion(real, 'Concepto', escalaConceptual);
-                }
+                    if (tipoVis === 'Nota') {
+                      visible = transformarVisualizacion(real, 'Nota', escalaConceptual);
+                    } else if (tipoVis === 'Porcentaje') {
+                      visible = transformarVisualizacion(real, 'Porcentaje', escalaConceptual);
+                    } else if (tipoVis === 'Concepto') {
+                      visible = transformarVisualizacion(real, 'Concepto', escalaConceptual);
+                    }
                     console.log(`[DEBUG] actualizarNota - real: ${real}, visible: ${visible}, tipoVis: ${tipoVis}`);
                   }
                 }
@@ -2559,18 +2518,118 @@ const Notas = () => {
     );
   };
 
-  const handleAbrirModalColumna = (columna) => {
-    const componente = componentes.find(c => c.nombre === columna);
-    const notaEjemplo = todasLasNotasDB.find(n => n.Columna === columna);
+  const handleAbrirModalColumna = async (columna) => {
+    const comp = componentes.find(c => c.nombre === columna);
+    const tipo = comp?.tipoColumna || 1;
 
-    if (componente) {
     setModalColumna(columna);
-      setModalTipo(componente.tipoColumna);
-      setAssessmentIdEspecifico(notaEjemplo ? notaEjemplo.AssessmentId : null);
-      setModalVisible(true);
+    setModalTipo(tipo);
+    
+    // Logs para depuración
+    console.log(`[DEBUG] handleAbrirModalColumna called for columna: ${columna}`);
+    console.log(`[DEBUG] Initial modal type: ${tipo}`);
+    console.log(`[DEBUG] Current assessmentId (from state): ${assessmentId}`);
+    console.log(`[DEBUG] notesSaved structure:`, notasGuardadas.map(n => ({ Columna: n.Columna, AssessmentId: n.AssessmentId })));
+    console.log(`[DEBUG] componentes:`, componentes);
+
+    // Buscar el AssessmentId correcto para la columna clickeada
+    let assessmentIdCorrecto = null;
+    
+    // Primero buscamos en los componentes (que ahora tienen el id asignado)
+    if (comp && comp.id) {
+      assessmentIdCorrecto = comp.id;
+      console.log(`[DEBUG] AssessmentId encontrado en componentes: ${assessmentIdCorrecto}`);
     } else {
-      console.error("No se encontró el componente para la columna:", columna);
+      // Si no está en componentes, buscamos en notasGuardadas
+      const notaDeColumna = notasGuardadas.find(nota => nota.Columna === columna);
+      
+      if (notaDeColumna) {
+        assessmentIdCorrecto = notaDeColumna.AssessmentId;
+        console.log(`[DEBUG] AssessmentId encontrado en notasGuardadas: ${assessmentIdCorrecto}`);
+      } else {
+        // Fallback al assessmentId general
+        assessmentIdCorrecto = assessmentId;
+        console.log(`[DEBUG] Usando assessmentId general: ${assessmentIdCorrecto}`);
+      }
     }
+    
+    // Guardar el assessmentId específico en el estado
+    setAssessmentIdEspecifico(assessmentIdCorrecto);
+    
+    // Intentar obtener la configuración completa de la columna
+    if (assessmentIdCorrecto) {
+      try {
+        const configResponse = await axios.get(`http://localhost:5000/api/notas/configurar-columna/${assessmentIdCorrecto}`);
+        const configData = configResponse.data;
+        
+        console.log("[DEBUG] Configuración obtenida para columna:", configData);
+        
+        // IMPORTANTE: Asegurarnos de que los campos numéricos se conviertan a string
+        // para que los selectores los reconozcan correctamente
+        if (configData) {
+          if (configData.RefAssessmentTypeId !== undefined && configData.RefAssessmentTypeId !== null) {
+            configData.RefAssessmentTypeId = String(configData.RefAssessmentTypeId);
+            console.log("[DEBUG] RefAssessmentTypeId convertido a string:", configData.RefAssessmentTypeId);
+          }
+          
+          if (configData.RefScoreMetricTypeId !== undefined && configData.RefScoreMetricTypeId !== null) {
+            configData.RefScoreMetricTypeId = String(configData.RefScoreMetricTypeId);
+            console.log("[DEBUG] RefScoreMetricTypeId convertido a string:", configData.RefScoreMetricTypeId);
+          }
+          
+          if (configData.RefAssessmentSubtestTypeId !== undefined && configData.RefAssessmentSubtestTypeId !== null) {
+            configData.RefAssessmentSubtestTypeId = String(configData.RefAssessmentSubtestTypeId);
+          }
+          
+          // Si no tiene valores para los selectores, asignar valores por defecto
+          // RefAssessmentTypeId (Tipo evaluación) - Usar el primer valor de tiposEvaluacion
+          if (!configData.RefAssessmentTypeId && tiposEvaluacion && tiposEvaluacion.length > 0) {
+            configData.RefAssessmentTypeId = String(tiposEvaluacion[0].id);
+            console.log("[DEBUG] Asignando RefAssessmentTypeId por defecto:", configData.RefAssessmentTypeId);
+          }
+          
+          // RefScoreMetricTypeId (Escala) - Usar el primer valor de escalas
+          if (!configData.RefScoreMetricTypeId && escalas && escalas.length > 0) {
+            configData.RefScoreMetricTypeId = String(escalas[0].id);
+            console.log("[DEBUG] Asignando RefScoreMetricTypeId por defecto:", configData.RefScoreMetricTypeId);
+          }
+        }
+        
+        // Establecer la configuración completa en el estado
+        setConfigColumna(configData);
+      } catch (err) {
+        console.error("[ERROR] No se pudo obtener la configuración de la columna:", err);
+        
+        // Si falla la carga de configuración, crear una configuración por defecto
+        const configPorDefecto = {
+          RefAssessmentTypeId: tiposEvaluacion && tiposEvaluacion.length > 0 ? String(tiposEvaluacion[0].id) : '',
+          RefScoreMetricTypeId: escalas && escalas.length > 0 ? String(escalas[0].id) : '',
+          RefAssessmentSubtestTypeId: String(tipo),
+          Description: '',
+          WeightPercent: 0,
+          PublishedDate: dayjs().format('YYYY-MM-DD')
+        };
+        
+        console.log("[DEBUG] Usando configuración por defecto:", configPorDefecto);
+        setConfigColumna(configPorDefecto);
+      }
+    } else {
+      // Si no hay assessmentId, crear una configuración por defecto
+      const configPorDefecto = {
+        RefAssessmentTypeId: tiposEvaluacion && tiposEvaluacion.length > 0 ? String(tiposEvaluacion[0].id) : '',
+        RefScoreMetricTypeId: escalas && escalas.length > 0 ? String(escalas[0].id) : '',
+        RefAssessmentSubtestTypeId: String(tipo),
+        Description: '',
+        WeightPercent: 0,
+        PublishedDate: dayjs().format('YYYY-MM-DD')
+      };
+      
+      console.log("[DEBUG] No hay assessmentId, usando configuración por defecto:", configPorDefecto);
+      setConfigColumna(configPorDefecto);
+    }
+    
+    // Mostrar el modal después de cargar la configuración
+    setModalVisible(true);
   };
 
   const handleCerrarModal = () => {
@@ -2612,55 +2671,95 @@ const Notas = () => {
   };
 
   const handleEditConfirm = (idxEst, idxComp, tipoCol, tipoVis) => {
-    const valorEditado = edicionCelda[`${idxEst}-${idxComp}`];
-
+    // Obtener el valor de edicionCelda y normalizarlo
+    let valor = edicionCelda[`${idxEst}-${idxComp}`];
+    if (typeof valor === 'string') {
+      valor = valor.replace(',', '.');
+    }
+    
+    // Log para depuración
+    console.log(`[DEBUG] handleEditConfirm - idxEst: ${idxEst}, idxComp: ${idxComp}, tipoCol: ${tipoCol}, valor: ${valor}, tipo: ${typeof valor}`);
+    
+    setNotas(prevNotas => {
+      // Crear una copia profunda para evitar mutaciones
+      const nuevas = JSON.parse(JSON.stringify(prevNotas));
+      
+      // Verificar que existe la fila y la celda
+      if (nuevas[idxEst]) {
+        // Para notas directas (tipo 1)
+        if (tipoCol === 1) {
+          let real = null;
+          let visible = '';
+          
+          // Si el valor está vacío, establecer como null
+          if (valor === '' || valor === null || valor === undefined) {
+            real = null;
+            visible = '';
+          } else {
+            // Convertir a número según el tipo de visualización
+            if (tipoVis === 'Nota') {
+              // Preservar los decimales exactamente como fueron ingresados
+              real = parseFloat(valor);
+              
+              // Verificar si el valor es un número válido
+              if (!isNaN(real)) {
+                console.log(`[DEBUG] Valor convertido a número: ${real}, tipo: ${typeof real}`);
+                
+                // Si el valor es cero, no mostrar nada
+                if (real === 0) {
+                  visible = '';
+                } else {
+                  // Usar parseNota para asegurar formato consistente con decimales
+                  visible = parseNota(real);
+                  console.log(`[DEBUG] Valor visible después de parseNota: ${visible}`);
+                }
+              } else {
+                real = null;
+                visible = '';
+              }
+            } else if (tipoVis === 'Porcentaje') {
+              real = porcentajeANota(valor, 7.0);
+              visible = transformarVisualizacion(real, 'Porcentaje', escalaConceptual);
+            } else if (tipoVis === 'Concepto') {
+              real = conceptoANota(valor.toUpperCase(), escalaConceptual);
+              visible = transformarVisualizacion(real, 'Concepto', escalaConceptual);
+            }
+          }
+          
+          // Asegurarnos de que la celda sea un objeto
+          if (typeof nuevas[idxEst][idxComp] !== 'object' || nuevas[idxEst][idxComp] === null) {
+            nuevas[idxEst][idxComp] = {};
+          }
+          
+          // Eliminar cualquier propiedad temporal
+          if (nuevas[idxEst][idxComp].tempVisible) {
+            delete nuevas[idxEst][idxComp].tempVisible;
+          }
+          
+          nuevas[idxEst][idxComp].real = real;
+          nuevas[idxEst][idxComp].visible = visible;
+        } 
+        // Para acumulativa/vinculada (otros tipos)
+        else if (nuevas[idxEst][idxComp] !== undefined) {
+          nuevas[idxEst][idxComp] = valor;
+        }
+      }
+      
+      return nuevas;
+    });
+    
+    // Limpiar el estado de edición
     setEdicionCelda(prev => {
       const nuevo = { ...prev };
       delete nuevo[`${idxEst}-${idxComp}`];
       return nuevo;
     });
 
-    // Si no hay nada en la celda de edición, no hacer nada.
-    if (valorEditado === undefined) return;
-
-    let valorNumerico = null;
-
-    if (valorEditado !== null && valorEditado !== '') {
-      const valorNormalizado = valorEditado.toString().replace(',', '.');
-
-      if (tipoVis === 'Porcentaje') {
-        valorNumerico = porcentajeANota(valorNormalizado, 7.0);
-      } else if (tipoVis === 'Concepto') {
-        valorNumerico = conceptoANota(valorNormalizado, escalaConceptual);
-      } else {
-        valorNumerico = parseFloat(valorNormalizado);
-      }
+    // Guardar la nota en la base de datos si es de tipo acumulativa
+    if (tipoCol === 2) {
+      console.log(`[DEBUG] Guardando nota acumulativa para estudiante ${idxEst}, componente ${idxComp}, valor ${valor}`);
+      guardarNotaAcumulativa(idxEst, idxComp, valor);
     }
-
-    if (valorNumerico !== null && (isNaN(valorNumerico) || valorNumerico < 1.0 || valorNumerico > 7.0)) {
-      Swal.fire({
-        icon: 'error',
-        title: 'Valor no válido',
-        text: 'La nota debe ser un número entre 1.0 y 7.0, o un concepto/porcentaje válido.',
-      });
-      // No se actualiza el estado, por lo que la celda vuelve a su valor anterior.
-      return;
-    }
-
-    // Si la validación es exitosa, se actualiza el estado.
-    setNotas(prevNotas => {
-      const nuevas = [...prevNotas];
-      if (nuevas[idxEst] && nuevas[idxEst][idxComp] !== undefined) {
-          nuevas[idxEst][idxComp] = {
-              real: valorNumerico,
-              visible: transformarVisualizacion(valorNumerico, tipoVis, escalaConceptual)
-          };
-      }
-      return nuevas;
-    });
-    
-    // Aquí se llamaría a la función para guardar en la base de datos
-    // guardarNotaAcumulativa(idxEst, idxComp, valorNumerico);
   };
   
   
@@ -3235,25 +3334,27 @@ const confirmarCambioTipo = async (nuevoValor) => {
                     >
                       {c.nombre}
                     </span>
-                    {(c.tipoColumna === 1 || c.tipoColumna === 2) && (
-                      <>
+                    {c.tipoColumna === 1 && (
                       <select
                         value={visualizacionColumnas[c.nombre] || 'Nota'}
                         onChange={e => handleVisualizacionColumna(c.nombre, e.target.value)}
-                          style={{ 
-                            marginLeft: 4, 
-                            fontSize: '0.9em',
-                            display: 'inline-block',
-                            visibility: 'visible',
-                            position: 'relative',
-                            zIndex: 999
-                          }}
+                        style={{ 
+                          marginLeft: 4, 
+                          fontSize: '0.9em', 
+                          display: 'inline-block',
+                          position: 'relative',
+                          zIndex: 10,
+                          width: '80px',
+                          height: 'auto',
+                          padding: '2px',
+                          border: '1px solid #ccc',
+                          backgroundColor: '#fff'
+                        }}
                       >
                         <option value="Nota">Nota</option>
                         <option value="Porcentaje">Porcentaje</option>
                         <option value="Concepto">Concepto</option>
                       </select>
-                      </>
                     )}
                   </th>
                 ))}
@@ -3264,46 +3365,47 @@ const confirmarCambioTipo = async (nuevoValor) => {
               {estudiantes.map((est, idxEst) => (
                 <tr key={est.OrganizationPersonRoleId}>
                   <td>{est.FirstName} {est.LastName}</td>
-                  {componentes.map((c, idxComp) => {
-                    const esAcumulativa = c.tipoColumna === 2;
-                    const esVinculada = c.tipoColumna === 3;
-                    
-                    const inputStyles = {
-                      ...(esAcumulativa && { 
-                        cursor: 'pointer', 
-                        backgroundColor: '#f0f8ff'
-                      }),
-                      ...(esVinculada && {
-                        cursor: 'not-allowed',
-                        backgroundColor: '#e9ecef'
-                      })
-                    };
-
-                    return (
-                      <td key={idxComp}>
+                  {componentes.map((c, idxComp) => (
+                    <td key={idxComp}>
+                      {c.tipoColumna === 1 ? (
                         <input
                           type="text"
-                          style={inputStyles}
                           value={
                             edicionCelda[`${idxEst}-${idxComp}`] !== undefined
                               ? edicionCelda[`${idxEst}-${idxComp}`]
                               : notas[idxEst]?.[idxComp]?.visible || ''
                           }
-                          onClick={() => esAcumulativa && handleAbrirModalColumna(c.nombre)}
-                          onFocus={e => !esAcumulativa && !esVinculada && handleEditStart(idxEst, idxComp, notas[idxEst]?.[idxComp]?.visible || '')}
-                          onChange={e => !esAcumulativa && !esVinculada && handleEditChange(idxEst, idxComp, e.target.value)}
-                          onBlur={() => !esAcumulativa && !esVinculada && handleEditConfirm(idxEst, idxComp, c.tipoColumna, visualizacionColumnas[c.nombre] || 'Nota')}
+                          onFocus={e => handleEditStart(idxEst, idxComp, notas[idxEst]?.[idxComp]?.visible || '')}
+                          onChange={e => handleEditChange(idxEst, idxComp, e.target.value)}
+                          onBlur={() => handleEditConfirm(idxEst, idxComp, c.tipoColumna, visualizacionColumnas[c.nombre] || 'Nota')}
                           onKeyDown={e => {
                             if (e.key === 'Enter') {
+                              // Normalizar el valor antes de confirmar
+                              const valorActual = edicionCelda[`${idxEst}-${idxComp}`];
+                              if (valorActual && typeof valorActual === 'string') {
+                                const valorNormalizado = valorActual.replace(',', '.');
+                                setEdicionCelda(prev => ({ 
+                                  ...prev, 
+                                  [`${idxEst}-${idxComp}`]: valorNormalizado 
+                                }));
+                              }
                               e.target.blur();
                             }
                           }}
                           className="input-nota"
-                          readOnly={esAcumulativa || esVinculada}
+                          maxLength={visualizacionColumnas[c.nombre] === 'Concepto' ? 3 : undefined}
                         />
-                      </td>
-                    );
-                  })}
+                      ) : (
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={notas[idxEst]?.[idxComp] || ''}
+                          onChange={e => actualizarNota(idxEst, idxComp, e.target.value)}
+                          className="input-nota"
+                        />
+                      )}
+                    </td>
+                  ))}
                   <td><strong>{calcularFinal(notas[idxEst])}</strong></td>
                 </tr>
               ))}

@@ -1653,25 +1653,6 @@ const confirmarCambioTipo = async (nuevoValor) => {
 					const redondeado = valor !== null ? parseFloat(valor.toFixed(1)) : null;
 					const nuevas = [...subnotas];
 					nuevas[i].notas[j] = redondeado;
-					
-					// Recalcular promedio automáticamente
-					const notasValidas = nuevas[i].notas.filter(n => n !== null && !isNaN(parseFloat(n)));
-					if (notasValidas.length > 0 && nuevas[i].pesos.length > 0) {
-						let sumaPonderada = 0;
-						let sumaPesos = 0;
-						nuevas[i].notas.forEach((nota, index) => {
-							const valorNota = parseFloat(nota);
-							if (!isNaN(valorNota)) {
-								const peso = nuevas[i].pesos[index] || 0;
-								sumaPonderada += valorNota * peso;
-								sumaPesos += peso;
-							}
-						});
-						if (sumaPesos > 0) {
-							nuevas[i].promedio = parseFloat((sumaPonderada / sumaPesos).toFixed(1));
-						}
-					}
-					
 					setSubnotas(nuevas);
 				  }}
 				/>

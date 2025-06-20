@@ -1,0 +1,144 @@
+ <table className="tabla-modal">
+		
+		
+         <thead>
+			  <tr>
+				<th>N°</th>
+				<th>Alumnos</th>
+				{subnotas && subnotas.length > 0 && subnotas[0]?.notas ? 
+				  subnotas[0].notas.map((_, idx) => (
+				  <th key={idx}>
+					<input
+					  type="number"
+					  className="form-control"
+					  style={{ width: 50 }}
+					  value={subnotas[0]?.pesos?.[idx] || 0}
+					  onChange={(e) => {
+						const nuevoPeso = parseFloat(e.target.value);
+						const actualizados = subnotas.map(s => {
+						  const nuevosPesos = [...s.pesos];
+						  nuevosPesos[idx] = isNaN(nuevoPeso) ? 0 : nuevoPeso;
+						  return { ...s, pesos: nuevosPesos };
+						});
+						setSubnotas(actualizados);
+					  }}
+					/>
+					{subnotas[0].notas.length > 2 && (
+					  <button
+						className="btn btn-danger"
+						style={{ padding: '2px 4px', fontSize: '0.8em' }}
+						onClick={() => handleEliminarColumna(idx)}
+					  >
+						🗑️
+					  </button>
+					)}
+				  </th>
+				)) : (
+				  <>
+				    <th>
+				      <input type="number" className="form-control" style={{ width: 50 }} value={50} readOnly />
+				    </th>
+				    <th>
+				      <input type="number" className="form-control" style={{ width: 50 }} value={50} readOnly />
+				    </th>
+				  </>
+				)}
+				
+				<th style={{ fontWeight: 'bold', color: pesosValidos() ? 'green' : 'red' }}>
+				  {calcularTotalPeso().toFixed(1)}%
+				  {!pesosValidos() && calcularTotalPeso() > 0 && (
+					<div style={{ color: 'red', fontSize: '0.75rem' }}>
+					  Las ponderaciones deben sumar 100%
+					</div>
+				  )}
+				</th>
+
+				
+				
+				
+			  </tr>
+			</thead>
+
+		  
+		  
+		  
+          <tbody>
+            {subnotas.map((alumno, i) => (
+              <tr key={i}>
+                <td>{i + 1}</td>
+                <td>{alumno.nombre}</td>
+                {alumno.notas.map((nota, j) => (
+                  <td key={j}>
+				  
+				<input
+				  type="text"
+				  className="form-control"
+				  style={{ color: nota < 4 ? 'red' : 'blue' }}
+				  value={nota ?? ''}
+				  onChange={e => {
+					const raw = e.target.value.trim().replace(',', '.');
+
+					// Validar que tenga como máximo un decimal
+					const decimalMatch = raw.match(/^\d+(\.\d{0,1})?$/);
+
+					if (!decimalMatch && raw !== '') {
+					  Swal.fire({
+						icon: 'warning',
+						title: 'Nota inválida',
+						text: `La nota ${raw} no es válida. Solo se permite un decimal (ej: 5.5 o 6.0).`,
+					  });
+					  return;
+					}
+					
+					const valorRaw = parseFloat(raw);
+
+						// Rechazar valores inválidos o negativos
+						if (isNaN(valorRaw) || valorRaw <= 0) {
+						  Swal.fire({
+							icon: 'warning',
+							title: 'Nota inválida',
+							text: `No se permiten valores menores a 1.`,
+						  });
+						  return;
+						}
+
+						// Si es mayor a 70 => rechazar
+						if (valorRaw > 70) {
+						  Swal.fire({
+							icon: 'warning',
+							title: 'Nota inválida',
+							text: `La nota ${raw} excede el máximo permitido (7.0).`,
+						  });
+						  return;
+						}
+						
+						// Asegurarse de que el identifier sea correcto (SUB1, SUB2, etc.)
+						const identifier = `SUB${j+1}`;
+						console.log(`[DEBUG] Asignando identifier ${identifier} para subnota en posición ${j}`)
+
+
+
+					const valor = normalizarNota(raw);
+					const redondeado = valor !== null ? parseFloat(valor.toFixed(1)) : null;
+					const nuevas = [...subnotas];
+					nuevas[i].notas[j] = redondeado;
+					setSubnotas(nuevas);
+				  }}
+				/>
+
+
+
+
+
+					
+					
+                  </td>
+                ))}
+                <td style={{ color: alumno.promedio < 4 ? 'red' : 'blue' }}>
+				  {alumno.promedio?.toFixed(1) || '0.0'}
+				</td>
+
+              </tr>
+            ))}
+          </tbody>
+        </table>

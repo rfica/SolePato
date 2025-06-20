@@ -338,8 +338,7 @@ exports.getNotasGuardadasPorCursoAsignaturaPeriodo = async (req, res) => {
             ar.PersonId,
             ar.AssessmentAdministrationId,
             ar.CreationDate,
-            res.ScoreValue,
-            res.IsAverage -- Se agrega el campo IsAverage para identificar la nota promedio.
+            res.ScoreValue
           FROM AssessmentRegistration ar
           LEFT JOIN AssessmentResult res ON res.AssessmentRegistrationId = ar.AssessmentRegistrationId
           WHERE ar.CourseSectionOrganizationId = @asignaturaId
@@ -353,8 +352,7 @@ exports.getNotasGuardadasPorCursoAsignaturaPeriodo = async (req, res) => {
             cn.NombreColumna,
             cn.RefAssessmentSubtestTypeId,
             cn.VisualNoteType,
-            rn.ScoreValue,
-            rn.IsAverage, -- Se propaga el campo IsAverage.
+            ISNULL(rn.ScoreValue, 0.00) AS ScoreValue,
             rn.AssessmentRegistrationId,
             gp.Name AS Periodo,
             rn.CreationDate
@@ -1063,16 +1061,7 @@ exports.obtenerConfiguracionColumna = async (req, res) => {
     }
 
     const configuracion = result.recordset[0];
-    
-    // LOGS ADICIONALES PARA DIAGNÓSTICO
     console.log(`[OBTENER_CONFIG] Configuración encontrada:`, configuracion);
-    console.log(`[OBTENER_CONFIG] RefAssessmentSubtestTypeId: ${configuracion.RefAssessmentSubtestTypeId}, tipo: ${typeof configuracion.RefAssessmentSubtestTypeId}`);
-    console.log(`[OBTENER_CONFIG] VisualNoteType: ${configuracion.VisualNoteType}, tipo: ${typeof configuracion.VisualNoteType}`);
-    
-    // Verificar si hay inconsistencia entre RefAssessmentSubtestTypeId y VisualNoteType
-    if (configuracion.RefAssessmentSubtestTypeId !== configuracion.VisualNoteType) {
-      console.log(`[OBTENER_CONFIG] ⚠️ ADVERTENCIA: Inconsistencia detectada entre RefAssessmentSubtestTypeId (${configuracion.RefAssessmentSubtestTypeId}) y VisualNoteType (${configuracion.VisualNoteType})`);
-    }
 
     // Formatear la fecha PublishedDate al formato YYYY-MM-DD para el input type="date" HTML
     if (configuracion.PublishedDate) {
